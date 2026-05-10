@@ -16,7 +16,7 @@ float velX = 0.0f;
 float distX = 0.0f;
 unsigned long lastTimeMicros = 0;
 
-float Kp = 40.0f; // start low, tune up
+float Kp = 60.0f; // start low, tune up
 
 
 // ******** MOTORS ******** //
@@ -30,7 +30,7 @@ Servo left_rear_motor;  // create servo object to control Vex Motor Controller 2
 Servo right_rear_motor;  // create servo object to control Vex Motor Controller 29
 Servo right_front_motor;  // create servo object to control Vex Motor Controller 29
 
-int speed_val = 150;
+int speed_val = 100;
 
 
 
@@ -65,18 +65,19 @@ void setup() {
 
 // -----------------------------------------------
 
-// void loop() {
-//     GYRO_reading(); // updates currentHeading and headingError
-
-//     int correction = (int)(Kp * headingError);
-
-//     forward(correction);
-// }
-
 void loop() {
-    GYRO_reading(); // just watch the serial output
-    delay(100);
+    GYRO_reading(); // updates currentHeading and headingError
+
+    int correction = (int)(Kp * headingError);
+
+    forward(correction);
+    delay(5);
 }
+
+// void loop() {
+//     GYRO_reading(); // just watch the serial output
+//     delay(100);
+// }
 
 // -----------------------------------------------
 void tare_heading() {
@@ -164,8 +165,8 @@ void stop() {
 void forward(int correction) {
     correction = constrain(correction, -200, 200);
 
-    left_front_motor.writeMicroseconds(1500 + speed_val - correction);
-    left_rear_motor.writeMicroseconds(1500 + speed_val - correction);
+    left_front_motor.writeMicroseconds(1500 + speed_val + correction);
+    left_rear_motor.writeMicroseconds(1500 + speed_val + correction);
     right_rear_motor.writeMicroseconds(1500 - speed_val + correction);
     right_front_motor.writeMicroseconds(1500 - speed_val + correction);
 }
