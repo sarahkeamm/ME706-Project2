@@ -16,7 +16,7 @@ float velX = 0.0f;
 float distX = 0.0f;
 unsigned long lastTimeMicros = 0;
 
-float Kp = 60.0f; // start low, tune up
+float Kp = 80.0f; // start low, tune up
 
 
 // ******** MOTORS ******** //
@@ -69,6 +69,8 @@ void loop() {
     GYRO_reading(); // updates currentHeading and headingError
 
     int correction = (int)(Kp * headingError);
+    Serial.print("Correction: ");
+    Serial.println(correction);
 
     forward(correction);
     delay(5);
@@ -163,11 +165,11 @@ void stop() {
 
 // -----------------------------------------------
 void forward(int correction) {
-    correction = constrain(correction, -200, 200);
+    correction = constrain(correction, -50, 50);
 
     left_front_motor.writeMicroseconds(1500 + speed_val + correction);
-    left_rear_motor.writeMicroseconds(1500 + speed_val + correction);
-    right_rear_motor.writeMicroseconds(1500 - speed_val + correction);
+    left_rear_motor.writeMicroseconds(1500 + speed_val);
+    right_rear_motor.writeMicroseconds(1500 - speed_val);
     right_front_motor.writeMicroseconds(1500 - speed_val + correction);
 }
 
