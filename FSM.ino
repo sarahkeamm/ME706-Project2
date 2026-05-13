@@ -123,9 +123,24 @@ speed_val = 500;
 speed_change = 0; //make speed change equals 0 after updating the speed value
 }
 
+
+//have flag for how many fires extinguished, 360 turn**
+//if no fires extinguished - full 360 turn, record angles of light detected and turn to strongest
+//if 1 fire extinguished - turn until light detected
+//return detect_fire_flag = 0 when robot is directed to the light
+
 void detect_fire()
 {
-
+    if (fires_detected == 0) {
+        //make sure enough space for robot to turn 360 degrees
+        //360 turn and record angles of light detected
+        //turn to the strongest light set flag as 0
+    } else if (fires_detected == 1) {
+        //turn until light detected
+        //set flag as 0 when light detected
+    } else {
+        detect_fire_output_flag = 0;
+    }
 }
 
 // cruise function output command and flag
