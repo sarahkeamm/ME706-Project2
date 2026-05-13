@@ -34,6 +34,8 @@ MOTION avoid_obstacle_command;
 int avoid_obstacle_output_flag;
 MOTION extinguish_fire_command;
 int extinguish_fire_output_flag;
+MOTION realign_to_fire_command;
+int realign_to_fire_output_flag;
 MOTION motor_input;
 
 
