@@ -20,7 +20,8 @@ BACKWARD,
 STRAFE_RIGHT,
 STRAFE_LEFT,
 CLOCKWISE,
-COUNTERCLOCKWISE
+COUNTERCLOCKWISE, 
+FAN
 };
 
 
@@ -140,7 +141,8 @@ void avoid_obstacle()
 
 void extinguish_fire()
 {
-
+    extinguish_fire_output_flag = 1;
+    extinguish_fire_command = FAN;
 }
 
 
@@ -154,6 +156,41 @@ void arbitrate ()
 // read simulative sensor reading
 void serial_read_conditions() {
 
+}
+
+void robotMove() {
+  switch(motor_input)
+  {
+    case FORWARD:
+    forward ();
+    delay(1000);
+    break;
+    case BACKWARD:
+    reverse ();
+    delay(1000);
+    break;
+    case STRAFE_RIGHT:
+    strafe_right();
+    delay(1000);
+    break;
+    case STRAFE_LEFT:
+    strafe_left();
+    delay(1000);
+    break;
+    case CLOCKWISE:
+    cw();
+    delay(1000);
+    break;
+    case COUNTERCLOCKWISE:
+    ccw();
+    delay(1000);
+    break;
+    case FAN:
+    //fan_on();
+    delay(10000);
+    //fan_off();
+    break;
+  }
 }
 
 // ----------------------------------------------------------------- MOTOR COMANDS -----------------------------------------------------------
