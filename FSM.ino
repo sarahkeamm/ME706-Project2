@@ -50,6 +50,10 @@ int fires_extinguished = 0;
 bool scan_360 = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
+//realign variables
+#define RIGHT 0
+#define LEFT 1
+int realign_direction_flag = -1; 
 
 int ir_detect;
 int ultrasonic_distance;
@@ -164,6 +168,10 @@ float GYRO_reading_angle() {
   }
 }
 
+void versinity_scan() {
+    //read sensors all around, 
+}
+
 //have flag for how many fires extinguished, 360 turn**
 //if no fires extinguished - full 360 turn, record angles of light detected and turn to strongest
 //if 1 fire extinguished - turn until light detected
@@ -171,6 +179,8 @@ float GYRO_reading_angle() {
 
 void detect_fire()
 {
+    //put initial scan for near obstacles in here
+
     //initial scan for fire
     if (scan_360 == 0 && fires_extinguished == 0) {
         //make sure enough space for robot to turn 360 degrees
@@ -196,6 +206,8 @@ void detect_fire()
             detect_fire_command = CLOCKWISE;
             detect_fire_output_flag = 1;
         }
+    } else {
+        detect_fire_output_flag = 0;
     }
     
     //rescanning after extinguishing first fire
@@ -207,7 +219,38 @@ void detect_fire()
             detect_fire_command = CLOCKWISE;
             detect_fire_output_flag = 1;
         }
-    } 
+    } else {
+        detect_fire_output_flag = 0;
+    }
+}
+
+void realign_to_fire()
+{
+    //flag of what direction it went when avoiding obstacle
+    //put initial scan for near obstacles in here 
+    
+    //if flag == right, turn left until fire detected
+    //if flag == left, turn right until fire detected
+    if (realign_direction_flag == RIGHT) {
+        if (sensorValues[3] > 0 && sensorValues[2] > 0) {
+            realign_to_fire_command = STOP;
+            realign_to_fire_output_flag = 0;
+        } else {
+            realign_to_fire_command = COUNTERCLOCKWISE;
+            realign_to_fire_output_flag = 1;
+        } 
+    } else if (realign_direction_flag == LEFT) {
+        if (sensorValues[3] > 0 && sensorValues[2] > 0) {
+            realign_to_fire_command = STOP;
+            realign_to_fire_output_flag = 0;
+        } else {
+            realign_to_fire_command = CLOCKWISE;
+            realign_to_fire_output_flag = 1;
+        }
+    } else {
+        realign_to_fire_output_flag = 0;
+    }
+
 }
 
 // cruise function output command and flag
