@@ -134,7 +134,7 @@ void tare_heading() {
 }
 
 // -----------------------------------------------
-float GYRO_reading() {
+float GYRO_reading_angle() {
   if (bno08x.wasReset()) {
     bno08x.enableReport(SH2_GAME_ROTATION_VECTOR, 10000);
     bno08x.enableReport(SH2_LINEAR_ACCELERATION, 10000);

@@ -6,6 +6,7 @@ const byte left_front = 46;
 const byte left_rear = 47;
 const byte right_rear = 50;
 const byte right_front = 51;
+
 // three machine states
 enum STATE {
 INITIALISING,
@@ -41,10 +42,17 @@ MOTION motor_input;
 
 // define threshold of phototransistor difference
 int photo_dead_zone = 5;
-// define the sensor reading results
-int photo_left ;
-int photo_right;
+
+//fire detecting sensors and variables
+int sensorValues[4];
+int Photopins[] = {A8, A9, A10, A11}; // phototransistor pins
+int fires_extinguished = 0;
+bool scan_360 = 0;
+float spin_angle = 0;
+int detect_angles[2] = {0, 0};
+
 int ir_detect;
+int ultrasonic_distance;
 int bumper_left;
 int bumper_right;
 int bumper_back;
@@ -61,6 +69,11 @@ int speed_change;
 
 void setup() {
     Serial.begin(9600); // start serial communication
+
+    //phototransistors setup
+    for (int i = 0; i < 4; i++) {
+    pinMode(photoPins[i], INPUT);
+    }
 }
 
 
@@ -92,23 +105,16 @@ STATE initialising(){
 }
 
 STATE running(){
-    //read_serial_command(); // read command from serial communication
-    speed_change_smooth(); //function to speed up and slow down smoothly
-    // this is just for test functions to read simulative sensor reading from monitor
-    serial_read_conditions();
+    serial_read_conditions(); //read all sensors
     // four function
+    detect_fire();
     cruise();
-    follow();
-    avoid();
-    escape();
+    avoid_obstacle();
+    realign_to_fire();
+    extinguish_fire();
     // select the output command based on the function priority
     arbitrate();
-    photo_left = 0;
-    photo_right = 0;
-    ir_detect = 0;
-    bumper_left = 0;
-    bumper_right = 0;
-    bumper_back = 0;
+    //should set all sensor values to 0 here
     return RUNNING; // return to RUNNING STATE again, it will run the RUNNING
 } // STATE REPEATLY
 
@@ -125,6 +131,38 @@ speed_val = 500;
 speed_change = 0; //make speed change equals 0 after updating the speed value
 }
 
+float GYRO_reading_angle() {
+  if (bno08x.wasReset()) {
+    bno08x.enableReport(SH2_GAME_ROTATION_VECTOR, 10000);
+    bno08x.enableReport(SH2_LINEAR_ACCELERATION, 10000);
+    lastTimeMicros = micros();
+  }
+
+  while (bno08x.getSensorEvent(&sensorValue)) {
+
+    if (sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR) {
+      float qw = sensorValue.un.gameRotationVector.real;
+      float qx = sensorValue.un.gameRotationVector.i;
+      float qy = sensorValue.un.gameRotationVector.j;
+      float qz = sensorValue.un.gameRotationVector.k;
+
+      float yaw = atan2(2.0f * (qw * qz + qx * qy),
+                        1.0f - 2.0f * (qy * qy + qz * qz));
+
+      currentHeading = yaw * 180.0f / M_PI;
+      while (currentHeading < 0.0f) currentHeading += 360.0f;
+      while (currentHeading >= 360.0f) currentHeading -= 360.0f;
+
+      headingError = currentHeading - headingOffset;
+      while (headingError < 0.0f) headingError += 360.0f;
+      while (headingError >= 360.0f) headingError -= 360.0f;
+
+      // Serial.print("Heading error (deg): ");
+      // SerialCom->println(headingError);
+      return headingError;
+    }
+  }
+}
 
 //have flag for how many fires extinguished, 360 turn**
 //if no fires extinguished - full 360 turn, record angles of light detected and turn to strongest
@@ -133,22 +171,50 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 
 void detect_fire()
 {
-    if (fires_detected == 0) {
+    //initial scan for fire
+    if (scan_360 == 0 && fires_extinguished == 0) {
         //make sure enough space for robot to turn 360 degrees
-        //360 turn and record angles of light detected
-        //turn to the strongest light set flag as 0
-    } else if (fires_detected == 1) {
-        //turn until light detected
-        //set flag as 0 when light detected
-    } else {
-        detect_fire_output_flag = 0;
+        if (spin_angle > 355.0 || spin_angle < 5.0) {
+            scan_360 = 1;
+            detect_fire_commmand = STOP;
+            detect_fire_output_flag = 1;
+        } else {
+            if (sensorValues[3] > 0 && sensorValues[2] > 0) {
+                detect_angles[scan_number] = spin_angle;
+                //also read distances
+                scan_number++;
+            }
+            detect_fire_command = CLOCKWISE;
+            detect_fire_output_flag = 1;
+        }
+    } else if (scan_360 == 1 && fires_extinguished == 0) {
+        int min_angle = min(detect_angles[0], detect_angles[1]);
+        if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
+            detect_fire_command = STOP;
+            detect_fire_output_flag = 0;
+        } else {
+            detect_fire_command = CLOCKWISE;
+            detect_fire_output_flag = 1;
+        }
     }
+    
+    //rescanning after extinguishing first fire
+    if (scan_360 == 1 && fires_extinguished == 1) {
+        if (sensorValues[3] > 0 && sensorValues[2] > 0) {
+            detect_fire_command = STOP;
+            detect_fire_output_flag = 0;
+        } else {
+            detect_fire_command = CLOCKWISE;
+            detect_fire_output_flag = 1;
+        }
+    } 
 }
 
 // cruise function output command and flag
 void cruise()
 {
-
+    cruise_command = FORWARD;
+    cruise_output_flag=1;
 }
 
 void avoid_obstacle()
@@ -158,21 +224,42 @@ void avoid_obstacle()
 
 void extinguish_fire()
 {
-    extinguish_fire_output_flag = 1;
-    extinguish_fire_command = FAN;
+    //check distance from fire, if close enough set motor input to FAN
+    //otherwise set output flag to 0
+    if (sensorValues[1] <= 10 && sensorValues[0] <= 10) {
+        extinguish_fire_command = FAN;
+        extinguish_fire_output_flag = 1;
+    } else {
+        extinguish_fire_output_flag = 0;
+    }
 }
 
 
 // check flag and select command based on priority
 void arbitrate ()
 {
-
+    if (cruise_output_flag==1)
+    {motor_input=cruise_command;}
+    if (realign_to_fire_output_flag==1) 
+    {motor_input=realign_to_fire_command;}
+    if (avoid_obstacle_output_flag ==1)
+    {motor_input=avoid_obstacle_command;}
+    if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
+    {motor_input=extinguish_fire_command;}
+    if (detect_fire_output_flag==1) //first priority to detect fire
+    {motor_input=detect_fire_command;}
+    robotMove();
 }
 
 
 // read simulative sensor reading
 void serial_read_conditions() {
+    //read phototransistors
+    for (int i = 0; i < 4; i++) {
+    sensorValues[i] = analogRead(photoPins[i]);
+    }
 
+    spin_angle = GYRO_reading_angle(); //read gyro angle
 }
 
 void robotMove() {
