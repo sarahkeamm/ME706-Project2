@@ -522,22 +522,23 @@ void read_IR_sensors() {
   float signal4 = sum4 / 4.0f;
 
   // Front sensors — long range calibration
-  float IR1 = 17948.0f * pow(signal1, -1.22f);
-  IR1 = (IR1 - 0.1596f) / 0.8007f;
-  front_left_IR = IR1;
-
-  float IR2 = 17948.0f * pow(signal2, -1.22f);
-  IR2 = (IR2 + 2.0700f) / 0.9163f;
-  front_right_IR = IR2;
+  // front_left_IR is long range (IR3 from calibration)
+  front_left_IR = 17948*pow(signal1,-1.22); 
+  front_left_IR = (front_left_IR + 4.4859) / 1.0697; // correction long
+  
+  // front_right_IR is long range (IR4 from calibration)
+  front_right_IR = 17948.0f*pow(signal2, -1.22f);
+  front_right_IR = (front_right_IR + 5.6134) / 1.14117; //correction long 
 
   // Rear sensors — medium range calibration
-  float IR3 = 17948.0f * pow(signal3, -1.22f);
-  IR3 = (IR3 + 10.6425f) / 2.9208f;
-  rear_left_IR = IR3;
+  // rear_left_IR is med range (IR1 from calibration)
+  rear_left_IR = 17948*pow(signal3,-1.22);
+  rear_left_IR = (rear_left_IR + 7.7957) / 2.5496;
 
-  float IR4 = 17948.0f * pow(signal4, -1.22f);
-  IR4 = (IR4 + 10.8049f) / 2.9308f;
-  rear_right_IR = IR4;
+  //rear_right_IR is med range (IR4 from calibration)
+  rear_right_IR = 17948.0f * pow(signal4, -1.22f);
+  rear_right_IR = (rear_right_IR + 10.8049f) / 2.9308f;
+
 }
 
 // ================================================================
