@@ -1,5 +1,4 @@
 // ============================================================
-//  avoidtest.ino
 //  Obstacle avoidance test — behavioural architecture + IMU
 //
 //  Behaviour priority (lowest → highest):
@@ -90,6 +89,22 @@ bool  motors_active = false;
 // heading_locked: the world-frame heading we want to maintain while driving.
 // Set once after initial alignment, updated after each realign.
 float heading_locked = 0.0f;
+int fire_count = 0;
+
+// ================================================================
+//  FORWARD DECLARATIONS
+// ================================================================
+float wrapAngle(float a);
+float getHeading();
+void  updateIMU();
+void  mecanumDrive(float x, float y, float rotation);
+void  stopRobot();
+void  enable_motors();
+void  disable_motors();
+float read_sonarsensor();
+void  read_IR_sensors();
+void  spin_to_heading(float target_deg);
+void  realign();
 
 // ----------------------------------------------------------------
 //  PID
@@ -122,7 +137,7 @@ const float REALIGN_DEADBAND = 3.0f;   // degrees
 // ----------------------------------------------------------------
 //  STATE MACHINE  (unchanged from base code)
 // ----------------------------------------------------------------
-enum STATE { INITIALISING, RUNNING, STOPPED };
+enum STATE { INITIALISING, HOME, RUNNING, EXTINGUISHING, STOPPED };
 
 // ----------------------------------------------------------------
 //  BEHAVIOUR FLAGS  (unchanged from base code pattern)
@@ -131,26 +146,18 @@ int cruise_output_flag  = 0;
 int avoid_output_flag   = 0;
 int escape_output_flag  = 0;
 
-// ================================================================
-//  FORWARD DECLARATIONS
-// ================================================================
-float wrapAngle(float a);
-float getHeading();
-void  updateIMU();
-void  mecanumDrive(float x, float y, float rotation);
-void  stopRobot();
-void  enable_motors();
-void  disable_motors();
-float read_sonarsensor();
-void  read_IR_sensors();
-void  spin_to_heading(float target_deg);
-void  realign();
+HardwareSerial *SerialCom;
 
 // ================================================================
 //  SETUP
 // ================================================================
 void setup() {
-  Serial.begin(115200);
+  SerialCom = &Serial1;
+  SerialCom->begin(115200);
+  SerialCom->println("MECHENG706_Project 2");
+  delay(1000);
+  SerialCom->println("Setup....");
+
 
   // Sonar
   pinMode(TRIG_PIN, OUTPUT);
@@ -184,7 +191,9 @@ void loop() {
   static STATE machine_state = INITIALISING;
   switch (machine_state) {
     case INITIALISING: machine_state = initialising(); break;
+    case HOME: machine_state = home(); break;
     case RUNNING:      machine_state = running();      break;
+    case EXTINGUISHING: machine_state = extinguishing(); break;
     case STOPPED:      machine_state = stopped();      break;
   }
 }
@@ -202,6 +211,12 @@ STATE initialising() {
   straightPID.reset();
 
   Serial.print(F("Aligned. heading_locked=")); Serial.println(heading_locked, 1);
+  //return home once sorted out finding fire 
+  return RUNNING;
+}
+
+STATE home() {
+  // check that there is enough room around robot to do 360 spin to find target
   return RUNNING;
 }
 
@@ -227,12 +242,12 @@ STATE running() {
   }
 
   // Stop if fire reached
-  int pl = analogRead(PHOTO_LEFT_PIN);
-  int pr = analogRead(PHOTO_RIGHT_PIN);
-  if (pl > PHOTO_FIRE_CLOSE && pr > PHOTO_FIRE_CLOSE) {
-    Serial.println(F("Fire reached — STOPPED"));
-    return STOPPED;
-  }
+  //int pl = analogRead(PHOTO_LEFT_PIN);
+  //int pr = analogRead(PHOTO_RIGHT_PIN);
+  //if (pl > PHOTO_FIRE_CLOSE && pr > PHOTO_FIRE_CLOSE) {
+  //  Serial.println(F("Fire reached — put it out!"));
+  //  return EXTINGUISHING;
+  //}
 
   // Run behaviours, highest priority last
   cruise();
@@ -242,6 +257,15 @@ STATE running() {
 
   arbitrate();
   return RUNNING;
+}
+
+STATE extinguishing() {
+  // put out fire 
+  fire_count++; 
+  if (fire_count == 2) {
+    // stop immediately after putting out two fires 
+    return STOPPED;
+  }
 }
 
 // ================================================================
@@ -536,7 +560,7 @@ float read_sonarsensor() {
     t2 = micros();
     pulse_width = t2 - t1;
     if (pulse_width > (MAX_DIST + 1000)) {
-      SerialCom->println("HC-SR04: NOT found");
+      Serial.println("HC-SR04: NOT found");
       return;
     }
   }
@@ -549,7 +573,7 @@ float read_sonarsensor() {
     t2 = micros();
     pulse_width = t2 - t1;
     if (pulse_width > (MAX_DIST + 1000)) {
-      SerialCom->println("HC-SR04: Out of range");
+      Serial.println("HC-SR04: Out of range");
       return;
     }
   }
@@ -564,10 +588,10 @@ float read_sonarsensor() {
 
   // Print out results
   if (pulse_width > MAX_DIST) {
-    SerialCom->println("HC-SR04: Out of range");
+    Serial.println("HC-SR04: Out of range");
   } else {
-    SerialCom->print("HC-SR04:");
-    SerialCom->print(cm);
+    Serial.print("HC-SR04:");
+    Serial.print(cm);
     SerialCom->println("cm");
   }
   return cm; 
