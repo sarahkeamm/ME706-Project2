@@ -60,6 +60,9 @@ int extinguish_fire_output_flag = 0;
 int realign_to_fire_output_flag = 0;
 
 //fire detecting sensors and variables
+float headingOffset = 0.0f;
+float currentHeading = 0.0f;
+float headingError = 0.0f;
 int fires_extinguished = 0;
 bool scan_360 = 0;
 int scan_number = 0;
@@ -78,6 +81,8 @@ Servo lr_motor;
 Servo rr_motor;
 Servo rf_motor;
 
+
+int speed_val = 120;
 const int baseSpeed = 120;   // µs offset into mecanumDrive
 int speed_change;
 
@@ -195,7 +200,7 @@ const float TURN_SPEED   = 0.5f;
 const float REALIGN_DEADBAND = 3.0f;   // degrees
 
 void setup() {
-    Serial.begin(115200);
+    Serial1.begin(115200);
     SerialCom = &Serial1;
 
     pinMode(TRIG_PIN, OUTPUT);
@@ -292,10 +297,11 @@ void detect_fire()
 {
     //initial scan for fire
     if (scan_360 == 0 && fires_extinguished == 0) {
+        SerialCom->println(spin_angle);
         //make sure enough space for robot to turn 360 degrees
-        if (spin_angle > 355.0 || spin_angle < 5.0) {
+        if (spin_angle > 355.0) {
             scan_360 = 1;
-            detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
+            stopRobot();
             detect_fire_output_flag = 1;
         } else {
             if (sensorValues[3] > 0 && sensorValues[2] > 0) {
@@ -303,7 +309,7 @@ void detect_fire()
                 detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) / 2.0f; // or some function of sensorValues[2] and sensorValues[3]
                 scan_number++;
             }
-            detect_fire_command = {0.0f, 0.0f, 1.0f}; // CLOCKWISE
+            detect_fire_command = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
             detect_fire_output_flag = 1;
         }
     } else if (scan_360 == 1 && fires_extinguished == 0) {
@@ -318,7 +324,7 @@ void detect_fire()
             detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
             detect_fire_output_flag = 0;
         } else {
-            detect_fire_command = {0.0f, 0.0f, 1.0f}; // CLOCKWISE
+            detect_fire_command = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
             detect_fire_output_flag = 1;
         }
     }
@@ -326,10 +332,11 @@ void detect_fire()
     //rescanning after extinguishing first fire
     if (scan_360 == 1 && fires_extinguished == 1) {
         if (sensorValues[3] > 0 && sensorValues[2] > 0) {
-            //detect_fire_command = STOP;
+            stopRobot();
             detect_fire_output_flag = 0;
         } else {
             //detect_fire_command = CLOCKWISE;
+            detect_fire_command = {0.0f, 0.0f, -0.8f}; //CLOCKWISE
             detect_fire_output_flag = 1;
         }
     } 
@@ -692,11 +699,11 @@ float read_sonarsensor() {
 
   // Print out results
   if (pulse_width > MAX_DIST) {
-    Serial.println("HC-SR04: Out of range");
+    // Serial.println("HC-SR04: Out of range");
   } else {
-    Serial.print("HC-SR04:");
-    Serial.print(cm);
-    SerialCom->println("cm");
+    // Serial.print("HC-SR04:");
+    // Serial.print(cm);
+    // SerialCom->println("cm");
   }
   return cm; 
 }
