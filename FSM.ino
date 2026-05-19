@@ -250,9 +250,12 @@ STATE initialising() {
     yaw_offset = yaw_raw;
 
     // Align to hardcoded fire bearing and lock heading
-    spin_to_heading(FIRE_BEARING_DEG);
-    heading_locked = getHeading();
-    straightPID.reset();
+    //spin_to_heading(FIRE_BEARING_DEG);
+
+    fire_angle = scan_for_fire();
+    //spin_to_heading(fire_angle);
+    //heading_locked = getHeading();
+    //straightPID.reset();
 
     return RUNNING;
 }
@@ -338,6 +341,54 @@ void cruise()
     float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
     cruise_command = {0.0f, DRIVE_SPEED, correction};
     cruise_output_flag=1;
+}
+
+float scan_for_fire() {
+    float best_angle  = 0.0f;
+    int   best_value  = 0;
+    float last_heading = getHeading();
+    float accumulated  = 0.0f;  // tracks total rotation 0→360
+
+    Serial.println(F("[SCAN] Starting 360 scan"));
+
+    while (accumulated < 355.0f) {
+        updateIMU();
+        float current_heading = getHeading();
+
+        // Accumulate the delta each loop — handles the ±180 wrap
+        float delta = wrapAngle(current_heading - last_heading);
+        accumulated += fabs(delta);
+        last_heading = current_heading;
+
+        // Read phototransistors
+        int val = 0;
+        for (int i = 0; i < 4; i++) {
+            val = max(val, (int)analogRead(Photopins[i]));
+        }
+
+        if (val > best_value) {
+            best_value = val;
+            best_angle = current_heading;  // world-frame heading
+            Serial.print(F("[SCAN] New best: ")); Serial.print(best_value);
+            Serial.print(F(" at heading: ")); Serial.println(best_angle, 1);
+        }
+
+        mecanumDrive(0.0f, 0.0f, 0.3f);
+        delay(20);
+    }
+
+    stopRobot();
+    delay(150);
+
+    Serial.print(F("[SCAN] Best angle: ")); Serial.print(best_angle, 1);
+    Serial.print(F(" value: ")); Serial.println(best_value);
+
+    spin_to_heading(best_angle);
+    heading_locked = getHeading();
+    straightPID.reset();
+
+    Serial.print(F("[SCAN] Aligned to fire at: ")); Serial.println(heading_locked, 1);
+    return best_angle;
 }
 
 void avoid_obstacle() {
