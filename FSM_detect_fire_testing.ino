@@ -296,12 +296,12 @@ void detect_fire()
         //make sure enough space for robot to turn 360 degrees
         if (spin_angle > 355.0 || spin_angle < 5.0) {
             scan_360 = 1;
-            detect_fire_commmand = {0.0f, 0.0f, 0.0f}; // STOP
+            detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
             detect_fire_output_flag = 1;
         } else {
             if (sensorValues[3] > 0 && sensorValues[2] > 0) {
                 detect_angles[scan_number] = spin_angle;
-                detect_distances[scan_number] = {sensorValues[3], sensorValues[2]};
+                detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) / 2.0f; // or some function of sensorValues[2] and sensorValues[3]
                 scan_number++;
             }
             detect_fire_command = {0.0f, 0.0f, 1.0f}; // CLOCKWISE
@@ -310,9 +310,9 @@ void detect_fire()
     } else if (scan_360 == 1 && fires_extinguished == 0) {
         int min_distance = min(detect_distances[0], detect_distances[1]);
         if (min_distance == detect_distances[0]) {
-          min_angle = detect_angles[0];
+          int min_angle = detect_angles[0];
         } else {
-          min_angle = detect_angles[1];
+          int min_angle = detect_angles[1];
         }
         if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
             detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
@@ -550,7 +550,10 @@ void serial_read_conditions() {
     for (int i = 0; i < 4; i++) {
         sensorValues[i] = analogRead(Photopins[i]);
     }
-    
+
+    // keep spin_angle in 0..360 using the IMU heading
+    spin_angle = fmod(getHeading() + 360.0f, 360.0f);
+
     // Always read forward sonar here — servo stays centred
     sensor_servo.write(SERVO_CENTRE);
     delay(60);
