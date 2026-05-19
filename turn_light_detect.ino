@@ -112,7 +112,7 @@ void loop() {
     sensorValues[i] = analogRead(photoPins[i]);
   }
 
-  if (sensorValues[3] > 0 || sensorValues[2] > 0) {
+  if (sensorValues[3] > 0 && sensorValues[2] > 0) {
     stop();
     SerialCom->println(GYRO_reading());
   } else {

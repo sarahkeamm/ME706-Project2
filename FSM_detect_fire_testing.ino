@@ -78,8 +78,7 @@ Servo lr_motor;
 Servo rr_motor;
 Servo rf_motor;
 
-int speed_val = 120;
-const int baseSpeed = 150;   // µs offset into mecanumDrive
+const int baseSpeed = 120;   // µs offset into mecanumDrive
 int speed_change;
 
 // ----------------------------
@@ -259,10 +258,10 @@ STATE running(){
     serial_read_conditions(); //read all sensors
     // four function
     detect_fire();
-    cruise();
+    // cruise();
     // avoid_obstacle();
     //realign_to_fire();
-    extinguish_fire();
+    // extinguish_fire();
     // select the output command based on the function priority
     arbitrate();
     //should set all sensor values to 0 here
@@ -309,10 +308,11 @@ void detect_fire()
         }
     } else if (scan_360 == 1 && fires_extinguished == 0) {
         int min_distance = min(detect_distances[0], detect_distances[1]);
+        int min_angle = 0;
         if (min_distance == detect_distances[0]) {
-          int min_angle = detect_angles[0];
+          min_angle = detect_angles[0];
         } else {
-          int min_angle = detect_angles[1];
+          min_angle = detect_angles[1];
         }
         if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
             detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
@@ -514,14 +514,14 @@ void avoid_obstacle() {
 
 void extinguish_fire()
 {
-    //check distance from fire, if close enough set motor input to FAN
-    //otherwise set output flag to 0
-    if (sensorValues[1] <= 10 && sensorValues[0] <= 10) {
-        extinguish_fire_command = FAN_ON;
-        extinguish_fire_output_flag = 1;
-    } else {
-        extinguish_fire_output_flag = 0;
-    }
+    // //check distance from fire, if close enough set motor input to FAN
+    // //otherwise set output flag to 0
+    // if (sensorValues[1] <= 10 && sensorValues[0] <= 10) {
+    //     extinguish_fire_command = FAN_ON;
+    //     extinguish_fire_output_flag = 1;
+    // } else {
+    //     extinguish_fire_output_flag = 0;
+    // }
 }
 
 
@@ -534,8 +534,8 @@ void arbitrate ()
     {motor_input=realign_to_fire_command;}
     if (avoid_obstacle_output_flag ==1)
     {motor_input=avoid_obstacle_command;}
-    if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
-    {fan_input=extinguish_fire_command;}
+    // if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
+    // {fan_input=extinguish_fire_command;}
     if (detect_fire_output_flag==1) //first priority to detect fire
     {motor_input=detect_fire_command;}
     robotMove();
@@ -552,7 +552,7 @@ void serial_read_conditions() {
     }
 
     // keep spin_angle in 0..360 using the IMU heading
-    spin_angle = fmod(getHeading() + 360.0f, 360.0f);
+    spin_angle = GYRO_reading_angle();
 
     // Always read forward sonar here — servo stays centred
     sensor_servo.write(SERVO_CENTRE);
@@ -778,6 +778,38 @@ void updateIMU() {
   }
   (void)dt;  // dt reserved for position integration if needed later
 }
+
+// ================================================================
+//  GYRO READING TO RETURN ANGLE (USE FOR DETECT FIRE)
+// ================================================================
+float GYRO_reading_angle() {
+
+  while (bno08x.getSensorEvent(&sensorValue)) {
+
+    if (sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR) {
+      float qw = sensorValue.un.gameRotationVector.real;
+      float qx = sensorValue.un.gameRotationVector.i;
+      float qy = sensorValue.un.gameRotationVector.j;
+      float qz = sensorValue.un.gameRotationVector.k;
+
+      float yaw = atan2(2.0f * (qw * qz + qx * qy),
+                        1.0f - 2.0f * (qy * qy + qz * qz));
+
+      currentHeading = yaw * 180.0f / M_PI;
+      while (currentHeading < 0.0f) currentHeading += 360.0f;
+      while (currentHeading >= 360.0f) currentHeading -= 360.0f;
+
+      headingError = currentHeading - headingOffset;
+      while (headingError < 0.0f) headingError += 360.0f;
+      while (headingError >= 360.0f) headingError -= 360.0f;
+
+      // Serial.print("Heading error (deg): ");
+      // SerialCom->println(headingError);
+      return headingError;
+    }
+  }
+}
+
 
 // ================================================================
 //  MECANUM DRIVE  (unchanged from base code)
