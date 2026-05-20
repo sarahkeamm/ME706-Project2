@@ -63,8 +63,8 @@ float headingError = 0.0f;
 float velX = 0.0f;
 float distX = 0.0f;
 unsigned long lastTimeMicros = 0;
-int fires_extinguished = 1;
-bool scan_360 = 1;
+int fires_extinguished = 0;
+bool scan_360 = 0;
 int scan_number = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
@@ -295,17 +295,21 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 
 void detect_fire()
 {
+  SerialCom->println(scan_360);
     //initial scan for fire
     if (scan_360 == 0 && fires_extinguished == 0) {
         //make sure enough space for robot to turn 360 degrees
-        if (spin_angle >= 350.0) {
+        if (spin_angle >= 350.0 && spin_angle < 358.0) {
+            SerialCom->println("done");
             scan_360 = 1;
             move_input = {0.0f, 0.0f, 0.0f}; // STOP
             detect_fire_command = STOP;
             detect_fire_output_flag = 1;
         } else if (spin_angle < 345.0) {
+            // SerialCom->println("spinning");
             int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 100 && sensorValues[2] > 100 && dif <= 100) {
+            if (sensorValues[3] > 200 && sensorValues[2] > 200 && dif <= 50) {
+                SerialCom->println(spin_angle);
                 detect_angles[scan_number] = spin_angle;
                 detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) / 2.0f; // or some function of sensorValues[2] and sensorValues[3]
                 scan_number++;
@@ -314,40 +318,41 @@ void detect_fire()
             detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
         }
-    } else if (scan_360 == 1 && fires_extinguished == 0) {
-        int min_distance = min(detect_distances[0], detect_distances[1]);
-        int min_angle = 0;
-        if (min_distance == detect_distances[0]) {
-          min_angle = detect_angles[0];
-        } else {
-          min_angle = detect_angles[1];
-        }
-        if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
-            move_input = {0.0f, 0.0f, 0.0f}; // STOP
-            detect_fire_command = STOP;
-            detect_fire_output_flag = 0;
-        } else {
-            move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE
-            detect_fire_command = MOVE;
-            detect_fire_output_flag = 1;
-        }
-    }
-    
-    //rescanning after extinguishing first fire
-    if (scan_360 == 1 && fires_extinguished == 1) {
-      int dif = abs(sensorValues[3] - sensorValues[2]);
-        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
-            SerialCom->println(sensorValues[3]);
-            SerialCom->println(sensorValues[2]);
-            move_input = {0.0f, 0.0f, 0.0f}; // STOP
-            detect_fire_command = STOP;
-            detect_fire_output_flag = 0;
-        } else {
-            move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
-            detect_fire_command = MOVE;
-            detect_fire_output_flag = 1;
-        }
     } 
+    // else if (scan_360 == 1 && fires_extinguished == 0) {
+    //     int min_distance = min(detect_distances[0], detect_distances[1]);
+    //     int min_angle = 0;
+    //     if (min_distance == detect_distances[0]) {
+    //       min_angle = detect_angles[0];
+    //     } else {
+    //       min_angle = detect_angles[1];
+    //     }
+    //     if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
+    //         move_input = {0.0f, 0.0f, 0.0f}; // STOP
+    //         detect_fire_command = STOP;
+    //         detect_fire_output_flag = 0;
+    //     } else {
+    //         move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE
+    //         detect_fire_command = MOVE;
+    //         detect_fire_output_flag = 1;
+    //     }
+    // }
+    
+    // //rescanning after extinguishing first fire
+    // if (scan_360 == 1 && fires_extinguished == 1) {
+    //   int dif = abs(sensorValues[3] - sensorValues[2]);
+    //     if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
+    //         SerialCom->println(sensorValues[3]);
+    //         SerialCom->println(sensorValues[2]);
+    //         move_input = {0.0f, 0.0f, 0.0f}; // STOP
+    //         detect_fire_command = STOP;
+    //         detect_fire_output_flag = 0;
+    //     } else {
+    //         move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
+    //         detect_fire_command = MOVE;
+    //         detect_fire_output_flag = 1;
+    //     }
+    // } 
 }
 
 // cruise function output command and flag
