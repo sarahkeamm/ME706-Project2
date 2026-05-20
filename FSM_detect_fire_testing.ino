@@ -553,14 +553,29 @@ void detect_fire()
 
 void extinguish_fire()
 {
-    // //check distance from fire, if close enough set motor input to FAN
-    // //otherwise set output flag to 0
-    // if (sensorValues[1] <= 10 && sensorValues[0] <= 10) {
-    //     extinguish_fire_command = FAN_ON;
-    //     extinguish_fire_output_flag = 1;
-    // } else {
-    //     extinguish_fire_output_flag = 0;
-    // }
+    //check if light is detected and sonar is close enough to extinguish
+    //if close enough check phototransistors values to check if centered
+    //if centered, turn fan on
+    if (/*sensor values >= threshold && sonar < 10*/) {
+      //compare short distance phtotransistor values to check if fire is centered
+      int dif = /* sensor 1 - sensor 2*/ 
+      if (dif >= 50) {
+        //turn slightly clockwise
+      } else if (dif < -50) {
+        //turn slightly anticlockwise
+      } else {
+        //turn fan on
+      }
+      extinguish_fire_output_flag = 1;
+    } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
+      extinguish_fire_command = FAN_OFF;
+      fires_extinguished++;
+      extinguish_fire_output_flag = 0;
+    } else {
+      extinguish_fire_output_flag = 0;
+    }
+
+
 }
 
 
