@@ -57,6 +57,10 @@ int avoid_obstacle_output_flag;
 int extinguish_fire_output_flag;
 int realign_to_fire_output_flag;
 
+bool escape_active = false;
+int escape_output_flag = 0;
+DriveCommand escape_command;
+
 // define threshold of phototransistor difference
 int photo_dead_zone = 5;
 
@@ -131,7 +135,7 @@ float sonar_fwd      = 999;
 //  HARDCODED FIRE TARGET  — change for each test run
 //  0 = straight ahead, positive = left (CCW), negative = right (CW)
 // ----------------------------------------------------------------
-const float FIRE_BEARING_DEG = 0.0f; 
+float FIRE_BEARING_DEG = 0.0f; 
 float last_strafe_dir = 0.0f;
 bool needs_realign = false; 
 
@@ -252,7 +256,7 @@ STATE initialising() {
     // Align to hardcoded fire bearing and lock heading
     //spin_to_heading(FIRE_BEARING_DEG);
 
-    fire_angle = scan_for_fire();
+    //+FIRE_BEARING_DEG = scan_for_fire();
     //spin_to_heading(fire_angle);
     //heading_locked = getHeading();
     //straightPID.reset();
@@ -260,19 +264,15 @@ STATE initialising() {
     return RUNNING;
 }
 
-STATE running(){
-    serial_read_conditions(); //read all sensors
-    // four function
-    //detect_fire();
+STATE running() {
+    serial_read_conditions();
     cruise();
     avoid_obstacle();
     realign_to_fire();
-    //extinguish_fire();
-    // select the output command based on the function priority
+    escape();           // add this
     arbitrate();
-    //should set all sensor values to 0 here
-    return RUNNING; // return to RUNNING STATE again, it will run the RUNNING
-} // STATE REPEATLY
+    return RUNNING;
+}
 
 
 STATE stopped(){
@@ -286,6 +286,43 @@ speed_val += speed_change; // speed value add on speed change
 if(speed_val > 500) // make sure speed change less than 5000
 speed_val = 500;
 speed_change = 0; //make speed change equals 0 after updating the speed value
+}
+
+void escape() {
+    bool rear_left_blocked  = (rear_left_IR  < IR_REAR_DANGER_CM);
+    bool rear_right_blocked = (rear_right_IR < IR_REAR_DANGER_CM);
+
+    if (!rear_left_blocked && !rear_right_blocked) {
+        escape_output_flag = 0;
+        escape_active      = false;
+        return;
+    }
+
+    bool front_left_blocked  = (front_left_IR  < IR_FRONT_WARNING_CM);
+    bool front_right_blocked = (front_right_IR < IR_FRONT_WARNING_CM);
+    bool sonar_blocked       = (sonar_fwd      < SONAR_OBSTACLE_CM);
+    bool front_clear         = !front_left_blocked && !front_right_blocked && !sonar_blocked;
+
+    escape_active      = true;
+    escape_output_flag = 1;
+
+    if (front_clear) {
+        // Front open — move forward to clear rear
+        escape_command = {0.0f, 0.5f, 0.0f};
+        Serial.println(F("[ESCAPE] Rear blocked, front clear — moving forward"));
+    } else if (currently_strafing) {
+        // Both rear and front blocked while strafing — flip strafe direction
+        avoid_strafe_dir   = -avoid_strafe_dir;
+        last_strafe_dir    = avoid_strafe_dir;
+        avoid_aligned      = false;  // re-align before resuming
+        escape_command     = {avoid_strafe_dir, 0.0f, 0.0f};
+        Serial.println(F("[ESCAPE] Cornered — flipping strafe direction"));
+    } else {
+        // Rear blocked, front blocked, not strafing — just stop
+        // avoid_obstacle() will handle direction pick next loop
+        escape_command = {0.0f, 0.0f, 0.0f};
+        Serial.println(F("[ESCAPE] Rear + front blocked — stopping for avoid to handle"));
+    }
 }
 
  
@@ -403,6 +440,7 @@ void avoid_obstacle() {
     if (rear_left_blocked || rear_right_blocked) {
       avoid_obstacle_output_flag = 1;
       avoid_obstacle_command = {0.0f, 0.5f, 0.0f};
+      currently_strafing = false;
       Serial.println(F("[AVOID] Rear blocked — nudging forward"));
     } else {
       avoid_obstacle_output_flag = 0;
@@ -459,6 +497,7 @@ void avoid_obstacle() {
     avoid_obstacle_output_flag = 1;
     avoid_strafe_dir = 0.0f;  // reset so both-blocked gets a fresh pick if it escalates
     avoid_obstacle_command = {1.0f, 0.0f, 0.0f};
+    currently_strafing = false;
     Serial.println(F("[AVOID] Left IR — strafing right"));
     return;
   }
@@ -468,6 +507,7 @@ void avoid_obstacle() {
     avoid_obstacle_output_flag = 1;
     avoid_strafe_dir = 0.0f;  // reset so both-blocked gets a fresh pick if it escalates
     avoid_obstacle_command = {-1.0f, 0.0f, 0.0f};
+    currently_strafing = false;
     Serial.println(F("[AVOID] Right IR — strafing left"));
     return;
   }
@@ -589,18 +629,19 @@ void extinguish_fire()
 
 
 // check flag and select command based on priority
-void arbitrate ()
-{
-    if (cruise_output_flag==1)
-    {motor_input=cruise_command;}
-    if (realign_to_fire_output_flag==1) 
-    {motor_input=realign_to_fire_command;}
-    if (avoid_obstacle_output_flag ==1)
-    {motor_input=avoid_obstacle_command;}
-    if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
-    {motor_input=extinguish_fire_command;}
-    if (detect_fire_output_flag==1) //first priority to detect fire
-    {motor_input=detect_fire_command;}
+void arbitrate() {
+    if (cruise_output_flag == 1)
+        motor_input = cruise_command;
+    if (realign_to_fire_output_flag == 1)
+        motor_input = realign_to_fire_command;
+    if (avoid_obstacle_output_flag == 1)
+        motor_input = avoid_obstacle_command;
+    if (extinguish_fire_output_flag == 1)
+        motor_input = extinguish_fire_command;
+    if (detect_fire_output_flag == 1)
+        motor_input = detect_fire_command;
+    if (escape_output_flag == 1)       // highest priority — overwrites everything
+        motor_input = escape_command;
     robotMove();
 }
 
@@ -615,6 +656,9 @@ void serial_read_conditions() {
     }
 
     if (currently_strafing) {
+      // Keep servo pointed in strafe direction every loop
+      sensor_servo.write((avoid_strafe_dir < 0.0f) ? SERVO_LEFT : SERVO_RIGHT);
+      delay(60);
       sonar_side = read_sonarsensor();
     } else {
       sensor_servo.write(SERVO_CENTRE);
