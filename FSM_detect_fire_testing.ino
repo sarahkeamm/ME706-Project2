@@ -69,6 +69,12 @@ int scan_number = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
 int detect_distances[2] = {0, 0};
+int average[5] = {0, 0, 0, 0, 0};
+
+//realign variables
+int last_dir = -1;
+#define RIGHT 1
+#define LEFT 0
 
 int ir_detect;
 int ultrasonic_distance;
@@ -262,10 +268,10 @@ STATE initialising() {
 STATE running(){
     serial_read_conditions(); //read all sensors
     // four function
-    detect_fire();
+    // detect_fire();
     // cruise();
     // avoid_obstacle();
-    //realign_to_fire();
+    realign_to_fire();
     // extinguish_fire();
     // select the output command based on the function priority
     arbitrate();
@@ -287,11 +293,24 @@ speed_val = 500;
 speed_change = 0; //make speed change equals 0 after updating the speed value
 }
 
- 
-//have flag for how many fires extinguished, 360 turn**
-//if no fires extinguished - full 360 turn, record angles of light detected and turn to strongest
-//if 1 fire extinguished - turn until light detected
-//return detect_fire_flag = 0 when robot is directed to the light
+void realign_to_fire() {
+  int dif = abs(sensorValues[3] - sensorValues[2]);
+        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
+            SerialCom->println(sensorValues[3]);
+            SerialCom->println(sensorValues[2]);
+            move_input = {0.0f, 0.0f, 0.0f}; // STOP
+            realign_to_fire_command= STOP;
+            realign_to_fire_output_flag= 0;
+        } else if (last_dir == RIGHT) {
+            move_input = {0.0f, 0.0f, -0.8f}; //ANTI-CLOCKWISE
+            realign_to_fire_command = MOVE;
+            realign_to_fire_output_flag = 1;
+        } else if (last_dir == LEFT) {
+            move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
+            realign_to_fire_command = MOVE;
+            realign_to_fire_output_flag = 1;
+        }
+}
 
 void detect_fire()
 {
@@ -341,17 +360,17 @@ void detect_fire()
     // //rescanning after extinguishing first fire
     // if (scan_360 == 1 && fires_extinguished == 1) {
     //   int dif = abs(sensorValues[3] - sensorValues[2]);
-    //     if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
-    //         SerialCom->println(sensorValues[3]);
-    //         SerialCom->println(sensorValues[2]);
-    //         move_input = {0.0f, 0.0f, 0.0f}; // STOP
-    //         detect_fire_command = STOP;
-    //         detect_fire_output_flag = 0;
-    //     } else {
-    //         move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
-    //         detect_fire_command = MOVE;
-    //         detect_fire_output_flag = 1;
-    //     }
+        // if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
+        //     SerialCom->println(sensorValues[3]);
+        //     SerialCom->println(sensorValues[2]);
+        //     move_input = {0.0f, 0.0f, 0.0f}; // STOP
+        //     detect_fire_command = STOP;
+        //     detect_fire_output_flag = 0;
+        // } else {
+        //     move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
+        //     detect_fire_command = MOVE;
+        //     detect_fire_output_flag = 1;
+        // }
     // } 
 }
 
@@ -554,8 +573,8 @@ void arbitrate ()
     {motor_input=realign_to_fire_command;}
     if (avoid_obstacle_output_flag ==1)
     {motor_input=avoid_obstacle_command;}
-    // if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
-    // {fan_input=extinguish_fire_command;}
+    if (extinguish_fire_output_flag==1) //check if fire is close enough to extinguish
+    {motor_input=extinguish_fire_command;}
     if (detect_fire_output_flag==1) //first priority to detect fire
     {motor_input=detect_fire_command;}
     robotMove();
