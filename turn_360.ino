@@ -96,16 +96,25 @@ void setup() {
 //     delay(5);
 // }
 
-void loop() {
+float targetAngle = 360.0f;
+float stopThreshold = 355.0f;    // Stop when close
+float resumeThreshold = 350.0f;  // Resume if it drops below this
+bool isNearTarget = false;
 
+void loop() {
   angle = GYRO_reading(); 
-  
-  // Treat "Close to 360" or "Close to 0" as the same thing
-  if (angle > 355.0 || angle < 5.0) {
+
+  // Hysteresis: requires angle to go past 355 to stop
+  // AND requires angle to drop back below 350 to resume
+  if (angle > stopThreshold && !isNearTarget) {
+    isNearTarget = true;
     stop();
-  } else {
+  } 
+  else if (angle < resumeThreshold && isNearTarget) {
+    isNearTarget = false;
     ccw();
   }
+  
   delay(50);
 }
 
@@ -145,11 +154,11 @@ float GYRO_reading() {
       while (headingError < 0.0f) headingError += 360.0f;
       while (headingError >= 360.0f) headingError -= 360.0f;
 
-      // Serial.print("Heading error (deg): ");
-      // SerialCom->println(headingError);
       return headingError;
     }
   }
+  
+  return headingError;  // Return last known value instead of 0
 }
 
 //----------------------Motor moments------------------------

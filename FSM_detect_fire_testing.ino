@@ -28,15 +28,18 @@ STOPPED
 
 // define motions states
 enum MOTION{
-FORWARD,
-BACKWARD,
-STRAFE_RIGHT,
-STRAFE_LEFT,
-CLOCKWISE,
-COUNTERCLOCKWISE, 
+MOVE,
+STOP,
 FAN_ON,
 FAN_OFF
 };
+
+MOTION cruise_command;
+MOTION avoid_obstacle_command;
+MOTION extinguish_fire_command;
+MOTION realign_to_fire_command;
+MOTION detect_fire_command;
+MOTION motor_input;
 
 struct DriveCommand {
   float x;         // strafe: +1 = right, -1 = left
@@ -45,13 +48,7 @@ struct DriveCommand {
 };
 
 // declare function output and function flag - fire_detection, cruising, obstacle_avoidance, extinguishing_fire
-DriveCommand detect_fire_command;
-DriveCommand cruise_command;
-DriveCommand avoid_obstacle_command;
-DriveCommand extinguish_fire_command;
-DriveCommand realign_to_fire_command;
-DriveCommand motor_input;
-int fan_input;
+DriveCommand move_input;
 
 int detect_fire_output_flag = 0;
 int cruise_output_flag = 0;
@@ -63,8 +60,11 @@ int realign_to_fire_output_flag = 0;
 float headingOffset = 0.0f;
 float currentHeading = 0.0f;
 float headingError = 0.0f;
-int fires_extinguished = 0;
-bool scan_360 = 0;
+float velX = 0.0f;
+float distX = 0.0f;
+unsigned long lastTimeMicros = 0;
+int fires_extinguished = 1;
+bool scan_360 = 1;
 int scan_number = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
@@ -297,19 +297,21 @@ void detect_fire()
 {
     //initial scan for fire
     if (scan_360 == 0 && fires_extinguished == 0) {
-        SerialCom->println(spin_angle);
         //make sure enough space for robot to turn 360 degrees
-        if (spin_angle > 355.0) {
+        if (spin_angle >= 350.0) {
             scan_360 = 1;
-            stopRobot();
+            move_input = {0.0f, 0.0f, 0.0f}; // STOP
+            detect_fire_command = STOP;
             detect_fire_output_flag = 1;
-        } else {
-            if (sensorValues[3] > 0 && sensorValues[2] > 0) {
+        } else if (spin_angle < 345.0) {
+            int dif = abs(sensorValues[3] - sensorValues[2]);
+            if (sensorValues[3] > 100 && sensorValues[2] > 100 && dif <= 100) {
                 detect_angles[scan_number] = spin_angle;
                 detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) / 2.0f; // or some function of sensorValues[2] and sensorValues[3]
                 scan_number++;
             }
-            detect_fire_command = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
+            move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE 
+            detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
         }
     } else if (scan_360 == 1 && fires_extinguished == 0) {
@@ -321,203 +323,209 @@ void detect_fire()
           min_angle = detect_angles[1];
         }
         if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
-            detect_fire_command = {0.0f, 0.0f, 0.0f}; // STOP
+            move_input = {0.0f, 0.0f, 0.0f}; // STOP
+            detect_fire_command = STOP;
             detect_fire_output_flag = 0;
         } else {
-            detect_fire_command = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
+            move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE
+            detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
         }
     }
     
     //rescanning after extinguishing first fire
     if (scan_360 == 1 && fires_extinguished == 1) {
-        if (sensorValues[3] > 0 && sensorValues[2] > 0) {
-            stopRobot();
+      int dif = abs(sensorValues[3] - sensorValues[2]);
+        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
+            SerialCom->println(sensorValues[3]);
+            SerialCom->println(sensorValues[2]);
+            move_input = {0.0f, 0.0f, 0.0f}; // STOP
+            detect_fire_command = STOP;
             detect_fire_output_flag = 0;
         } else {
-            //detect_fire_command = CLOCKWISE;
-            detect_fire_command = {0.0f, 0.0f, -0.8f}; //CLOCKWISE
+            move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
+            detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
         }
     } 
 }
 
 // cruise function output command and flag
-void cruise()
-{
-    float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
-    cruise_command = {0.0f, DRIVE_SPEED, correction};
-    cruise_output_flag=1;
-}
+// void cruise()
+// {
+//     float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
+//     cruise_command = {0.0f, DRIVE_SPEED, correction};
+//     cruise_output_flag=1;
+// }
 
-void avoid_obstacle() {
-  bool front_left_blocked  = (front_left_IR  < IR_FRONT_WARNING_CM );
-  bool front_right_blocked = (front_right_IR < IR_FRONT_WARNING_CM );
-  bool sonar_blocked       = (sonar_fwd      < SONAR_OBSTACLE_CM);
-  bool rear_left_blocked  = (front_left_IR  < IR_REAR_DANGER_CM);
-  bool rear_right_blocked = (front_right_IR < IR_REAR_DANGER_CM);
+// void avoid_obstacle() {
+//   bool front_left_blocked  = (front_left_IR  < IR_FRONT_WARNING_CM );
+//   bool front_right_blocked = (front_right_IR < IR_FRONT_WARNING_CM );
+//   bool sonar_blocked       = (sonar_fwd      < SONAR_OBSTACLE_CM);
+//   bool rear_left_blocked  = (front_left_IR  < IR_REAR_DANGER_CM);
+//   bool rear_right_blocked = (front_right_IR < IR_REAR_DANGER_CM);
 
-  // ── All clear ───────────────────────────────────────────────────
-  if (!front_left_blocked && !front_right_blocked && !sonar_blocked) {
-    if (rear_left_blocked || rear_right_blocked) {
-      // Rear clipping something — nudge forward to clear it
-      avoid_obstacle_output_flag = 1;
-      //realign_to_fire_output_flag==1
-      avoid_obstacle_command = {0.0f, 0.5f, 0.0f};
-      Serial.println(F("[AVOID] Rear blocked — nudging forward"));
-    } else {
-      avoid_obstacle_output_flag = 0;  // fully clear, hand back to cruise
-      avoid_strafe_dir           = 0.0f;
-      avoid_aligned              = false;
-      currently_strafing = false;  
-      Serial.println(F("[AVOID] All clear — handing to cruise"));
-    }
-    return;
-  }
+//   // ── All clear ───────────────────────────────────────────────────
+//   if (!front_left_blocked && !front_right_blocked && !sonar_blocked) {
+//     if (rear_left_blocked || rear_right_blocked) {
+//       // Rear clipping something — nudge forward to clear it
+//       avoid_obstacle_output_flag = 1;
+//       //realign_to_fire_output_flag==1
+//       avoid_obstacle_command = {0.0f, 0.5f, 0.0f};
+//       Serial.println(F("[AVOID] Rear blocked — nudging forward"));
+//     } else {
+//       avoid_obstacle_output_flag = 0;  // fully clear, hand back to cruise
+//       avoid_strafe_dir           = 0.0f;
+//       avoid_aligned              = false;
+//       currently_strafing = false;  
+//       Serial.println(F("[AVOID] All clear — handing to cruise"));
+//     }
+//     return;
+//   }
 
-  // ── Only sonar triggered (early warning) — no IR contact yet ────
-  if (!front_left_blocked && !front_right_blocked && sonar_blocked) {
-      avoid_obstacle_output_flag = 1;
+//   // ── Only sonar triggered (early warning) — no IR contact yet ────
+//   if (!front_left_blocked && !front_right_blocked && sonar_blocked) {
+//       avoid_obstacle_output_flag = 1;
 
-      // Only pick direction once — latch it just like the both-blocked case
-      if (avoid_strafe_dir == 0.0f) {
-          stopRobot();
-          sensor_servo.write(SERVO_LEFT);
-          delay(1000);
-          float left_dist = read_sonarsensor();
+//       // Only pick direction once — latch it just like the both-blocked case
+//       if (avoid_strafe_dir == 0.0f) {
+//           stopRobot();
+//           sensor_servo.write(SERVO_LEFT);
+//           delay(1000);
+//           float left_dist = read_sonarsensor();
 
-          sensor_servo.write(SERVO_RIGHT);
-          delay(1000);
-          float right_dist = read_sonarsensor();
+//           sensor_servo.write(SERVO_RIGHT);
+//           delay(1000);
+//           float right_dist = read_sonarsensor();
 
-          sensor_servo.write(SERVO_CENTRE);
+//           sensor_servo.write(SERVO_CENTRE);
 
-          float margin = 10.0f;
-          if (left_dist > right_dist + margin) {
-              avoid_strafe_dir = -1.0f;
-          } else if (right_dist > left_dist + margin) {
-              avoid_strafe_dir =  1.0f;
-          } else {
-              float fire_error = wrapAngle(heading_locked - getHeading());
-              avoid_strafe_dir = (fire_error < 0.0f) ? -1.0f : 1.0f;
-          }
-          Serial.print(F("[AVOID] Sonar — direction picked: "));
-          Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
-      }
+//           float margin = 10.0f;
+//           if (left_dist > right_dist + margin) {
+//               avoid_strafe_dir = -1.0f;
+//           } else if (right_dist > left_dist + margin) {
+//               avoid_strafe_dir =  1.0f;
+//           } else {
+//               float fire_error = wrapAngle(heading_locked - getHeading());
+//               avoid_strafe_dir = (fire_error < 0.0f) ? -1.0f : 1.0f;
+//           }
+//           Serial.print(F("[AVOID] Sonar — direction picked: "));
+//           Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
+//       }
 
-      avoid_obstacle_command = {avoid_strafe_dir, 0.0f, 0.0f};
-      return;
-    }
+//       avoid_obstacle_command = {avoid_strafe_dir, 0.0f, 0.0f};
+//       return;
+//     }
 
-  // ── Only left IR triggered — strafe right ───────────────────────
-  if (front_left_blocked && !front_right_blocked) {
-    avoid_obstacle_output_flag = 1;
-    //realign_to_fire_output_flag==1
-    avoid_obstacle_command = {1.0f, 0.0f, 0.0f};
-    Serial.println(F("[AVOID] Left IR — strafing right"));
-    return;
-  }
+//   // ── Only left IR triggered — strafe right ───────────────────────
+//   if (front_left_blocked && !front_right_blocked) {
+//     avoid_obstacle_output_flag = 1;
+//     //realign_to_fire_output_flag==1
+//     avoid_obstacle_command = {1.0f, 0.0f, 0.0f};
+//     Serial.println(F("[AVOID] Left IR — strafing right"));
+//     return;
+//   }
 
-  // ── Only right IR triggered — strafe left ───────────────────────
-  if (!front_left_blocked && front_right_blocked) {
-    avoid_obstacle_output_flag = 1;
-    //realign_to_fire_output_flag==1
-    avoid_obstacle_command = {-1.0f, 0.0f, 0.0f};
-    Serial.println(F("[AVOID] Right IR — strafing left"));
-    return;
-  }
+//   // ── Only right IR triggered — strafe left ───────────────────────
+//   if (!front_left_blocked && front_right_blocked) {
+//     avoid_obstacle_output_flag = 1;
+//     //realign_to_fire_output_flag==1
+//     avoid_obstacle_command = {-1.0f, 0.0f, 0.0f};
+//     Serial.println(F("[AVOID] Right IR — strafing left"));
+//     return;
+//   }
 
-    // ── Both blocked ─────────────────────────────────────────────────
-  avoid_obstacle_output_flag = 1;
-  //currently_strafing = false;
-  //realign_to_fire_output_flag==1
+//     // ── Both blocked ─────────────────────────────────────────────────
+//   avoid_obstacle_output_flag = 1;
+//   //currently_strafing = false;
+//   //realign_to_fire_output_flag==1
 
-  // Step 1: rotate until both IRs read the same (wall-parallel)
-  // Returns early each loop iteration — avoid_aligned latches true once done
-  //  if (!avoid_aligned) {
-  //   bool danger_left  = (front_left_IR  < IR_FRONT_DANGER_CM);
-  //   bool danger_right = (front_right_IR < IR_FRONT_DANGER_CM);
+//   // Step 1: rotate until both IRs read the same (wall-parallel)
+//   // Returns early each loop iteration — avoid_aligned latches true once done
+//   //  if (!avoid_aligned) {
+//   //   bool danger_left  = (front_left_IR  < IR_FRONT_DANGER_CM);
+//   //   bool danger_right = (front_right_IR < IR_FRONT_DANGER_CM);
 
-  //   if (!danger_left && !danger_right) {
-  //     // Both triggered at WARNING but not DANGER yet — just stop and wait
-  //     // to get close enough for a meaningful IR diff
-  //     avoid_obstacle_command = {0.0f, 0.0f, 0.0f};
-  //     Serial.println(F("[AVOID] Waiting to get closer for wall align"));
-  //     return;
-  //   }
+//   //   if (!danger_left && !danger_right) {
+//   //     // Both triggered at WARNING but not DANGER yet — just stop and wait
+//   //     // to get close enough for a meaningful IR diff
+//   //     avoid_obstacle_command = {0.0f, 0.0f, 0.0f};
+//   //     Serial.println(F("[AVOID] Waiting to get closer for wall align"));
+//   //     return;
+//   //   }
 
-  //   float diff = front_left_IR - front_right_IR;
-  //   Serial.print(F("[AVOID] Aligning to wall, diff: "));
-  //   Serial.println(diff, 1);
-  //   if (fabs(diff) < 3.0f) {
-  //     avoid_aligned = true;
-  //   } else {
-  //     float rot = constrain(diff * 0.25f, -0.3f, 0.3f);
-  //     avoid_obstacle_command = {0.0f, 0.0f, rot};
-  //     return;
-  //   }
-  // }
+//   //   float diff = front_left_IR - front_right_IR;
+//   //   Serial.print(F("[AVOID] Aligning to wall, diff: "));
+//   //   Serial.println(diff, 1);
+//   //   if (fabs(diff) < 3.0f) {
+//   //     avoid_aligned = true;
+//   //   } else {
+//   //     float rot = constrain(diff * 0.25f, -0.3f, 0.3f);
+//   //     avoid_obstacle_command = {0.0f, 0.0f, rot};
+//   //     return;
+//   //   }
+//   // }
 
-  // Step 2: pick strafe direction once — servo looks left then right
-  // avoid_strafe_dir latches so we don't re-check every loop
-  if (avoid_strafe_dir == 0.0f) {
-    stopRobot();
-    sensor_servo.write(0);               // look left (0° = robot's left)
-    delay(1000);
-    float left_dist = read_sonarsensor();
+//   // Step 2: pick strafe direction once — servo looks left then right
+//   // avoid_strafe_dir latches so we don't re-check every loop
+//   if (avoid_strafe_dir == 0.0f) {
+//     stopRobot();
+//     sensor_servo.write(0);               // look left (0° = robot's left)
+//     delay(1000);
+//     float left_dist = read_sonarsensor();
   
-    sensor_servo.write(180);             // look right
-    delay(1000);
-    float right_dist = read_sonarsensor();
+//     sensor_servo.write(180);             // look right
+//     delay(1000);
+//     float right_dist = read_sonarsensor();
 
-    sensor_servo.write(90);              // return to forward-facing
+//     sensor_servo.write(90);              // return to forward-facing
 
-    float margin = 10.0f;               // tune (cm) — gap needed to prefer one side
-    if (left_dist > right_dist + margin) {
-      avoid_strafe_dir = -1.0f;          // left clearly clearer
-    } else if (right_dist > left_dist + margin) {
-      avoid_strafe_dir =  1.0f;          // right clearly clearer
-    } else {
-      // Tied — strafe whichever way reduces angle to fire
-      float fire_error = wrapAngle(heading_locked - getHeading());
-      avoid_strafe_dir = (fire_error < 0.0f) ? -1.0f : 1.0f;
-    }
-    Serial.print(F("[AVOID] Direction picked: "));
-    Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
-  }
+//     float margin = 10.0f;               // tune (cm) — gap needed to prefer one side
+//     if (left_dist > right_dist + margin) {
+//       avoid_strafe_dir = -1.0f;          // left clearly clearer
+//     } else if (right_dist > left_dist + margin) {
+//       avoid_strafe_dir =  1.0f;          // right clearly clearer
+//     } else {
+//       // Tied — strafe whichever way reduces angle to fire
+//       float fire_error = wrapAngle(heading_locked - getHeading());
+//       avoid_strafe_dir = (fire_error < 0.0f) ? -1.0f : 1.0f;
+//     }
+//     Serial.print(F("[AVOID] Direction picked: "));
+//     Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
+//   }
 
-  // Step 3: strafe — check if side is blocked, reset direction if so
-  if (sonar_side < SONAR_SIDE_CLEAR_CM) {
-    Serial.println(F("[AVOID] Side blocked — stopping, rechecking direction"));
-    // Side blocked — stop and force recheck next loop
-    avoid_strafe_dir = 0.0f;
-    avoid_aligned    = false;  // realign to wall again before rechecking
-    avoid_obstacle_command = {0.0f, 0.0f, 0.0f};  // stop
-    return;
-  }
+//   // Step 3: strafe — check if side is blocked, reset direction if so
+//   if (sonar_side < SONAR_SIDE_CLEAR_CM) {
+//     Serial.println(F("[AVOID] Side blocked — stopping, rechecking direction"));
+//     // Side blocked — stop and force recheck next loop
+//     avoid_strafe_dir = 0.0f;
+//     avoid_aligned    = false;  // realign to wall again before rechecking
+//     avoid_obstacle_command = {0.0f, 0.0f, 0.0f};  // stop
+//     return;
+//   }
 
-  // Step 3: strafe — direction is locked until front clears
-  currently_strafing = true;
+//   // Step 3: strafe — direction is locked until front clears
+//   currently_strafing = true;
 
-   // Read side sonar fresh right here
-  int servo_angle = (avoid_strafe_dir < 0.0f) ? SERVO_LEFT : SERVO_RIGHT;
-  sensor_servo.write(servo_angle);
-  delay(60);
-  sonar_side = read_sonarsensor();
-  sensor_servo.write(SERVO_CENTRE);
+//    // Read side sonar fresh right here
+//   int servo_angle = (avoid_strafe_dir < 0.0f) ? SERVO_LEFT : SERVO_RIGHT;
+//   sensor_servo.write(servo_angle);
+//   delay(60);
+//   sonar_side = read_sonarsensor();
+//   sensor_servo.write(SERVO_CENTRE);
 
-  if (sonar_side < SONAR_SIDE_CLEAR_CM) {
-    Serial.print(F("[AVOID] Side blocked (")); Serial.print(sonar_side); Serial.println(F("cm) — rechecking direction"));
-    avoid_strafe_dir = 0.0f;
-    avoid_obstacle_command = {0.0f, 0.0f, 0.0f};
-    currently_strafing = false;
-    return;
-  }
+//   if (sonar_side < SONAR_SIDE_CLEAR_CM) {
+//     Serial.print(F("[AVOID] Side blocked (")); Serial.print(sonar_side); Serial.println(F("cm) — rechecking direction"));
+//     avoid_strafe_dir = 0.0f;
+//     avoid_obstacle_command = {0.0f, 0.0f, 0.0f};
+//     currently_strafing = false;
+//     return;
+//   }
   
-  Serial.print(F("[AVOID] Strafing: "));
-  Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
-  avoid_obstacle_command = {avoid_strafe_dir, 0.0f, 0.0f};
-}
+//   Serial.print(F("[AVOID] Strafing: "));
+//   Serial.println(avoid_strafe_dir < 0 ? "LEFT" : "RIGHT");
+//   avoid_obstacle_command = {avoid_strafe_dir, 0.0f, 0.0f};
+// }
 
 void extinguish_fire()
 {
@@ -559,7 +567,7 @@ void serial_read_conditions() {
     }
 
     // keep spin_angle in 0..360 using the IMU heading
-    spin_angle = GYRO_reading_angle();
+    spin_angle = GYRO_reading();
 
     // Always read forward sonar here — servo stays centred
     sensor_servo.write(SERVO_CENTRE);
@@ -584,15 +592,18 @@ void serial_read_conditions() {
 }
 
 void robotMove() {
-  if (fan_input == FAN_ON) {
-    //turn fan on for 10 seconds
-    //turn fan off
-    //fires_extinguished++;
-    //fan_input = FAN_OFF;
-  } else {
-    mecanumDrive(motor_input.x, motor_input.y, motor_input.rotation);
+   switch(motor_input)
+  {
+    case MOVE:
+    mecanumDrive(move_input.x, move_input.y, move_input.rotation);
+    break;
+    case STOP:
+    stopRobot();
+    break;
+    case FAN_ON:
+    //turn fan on
+    break;
   }
-
 }
 
 // ----------------------------------------------------------------- MOTOR COMANDS -----------------------------------------------------------
@@ -789,7 +800,20 @@ void updateIMU() {
 // ================================================================
 //  GYRO READING TO RETURN ANGLE (USE FOR DETECT FIRE)
 // ================================================================
-float GYRO_reading_angle() {
+void tare_heading() {
+    headingOffset = currentHeading;
+    velX = 0.0f;
+    distX = 0.0f;
+    lastTimeMicros = micros();
+}
+
+// -----------------------------------------------
+float GYRO_reading() {
+  if (bno08x.wasReset()) {
+    bno08x.enableReport(SH2_GAME_ROTATION_VECTOR, 10000);
+    bno08x.enableReport(SH2_LINEAR_ACCELERATION, 10000);
+    lastTimeMicros = micros();
+  }
 
   while (bno08x.getSensorEvent(&sensorValue)) {
 
@@ -810,13 +834,12 @@ float GYRO_reading_angle() {
       while (headingError < 0.0f) headingError += 360.0f;
       while (headingError >= 360.0f) headingError -= 360.0f;
 
-      // Serial.print("Heading error (deg): ");
-      // SerialCom->println(headingError);
       return headingError;
     }
   }
+  
+  return headingError;  // Return last known value instead of 0
 }
-
 
 // ================================================================
 //  MECANUM DRIVE  (unchanged from base code)
