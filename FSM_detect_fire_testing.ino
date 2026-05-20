@@ -295,20 +295,22 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 
 void realign_to_fire() {
   int dif = abs(sensorValues[3] - sensorValues[2]);
-        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
+        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) { //if light detected
             SerialCom->println(sensorValues[3]);
             SerialCom->println(sensorValues[2]);
             move_input = {0.0f, 0.0f, 0.0f}; // STOP
             realign_to_fire_command= STOP;
             realign_to_fire_output_flag= 0;
-        } else if (last_dir == RIGHT) {
+        } else if (sensorValues[2] < 100 && sensorValues[3] < 100) { //else if no light detected
+          if (last_dir == RIGHT ) {
             move_input = {0.0f, 0.0f, -0.8f}; //ANTI-CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
-        } else if (last_dir == LEFT) {
+          } else if (last_dir == LEFT) {
             move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
+          }
         }
 }
 
