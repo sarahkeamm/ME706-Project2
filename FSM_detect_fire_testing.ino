@@ -69,10 +69,15 @@ int scan_number = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
 int detect_distances[2] = {0, 0};
-int average[5] = {0, 0, 0, 0, 0};
+int cummulative_sensor_value = 0;
+float spin_angle_cummulative = 0.0f;
+float spin_angle_average = 0;
+int sensor_value_average = 0;
+int val_counter = 0;
+
 
 //realign variables
-int last_dir = -1;
+int last_dir = 0;
 #define RIGHT 1
 #define LEFT 0
 
@@ -89,7 +94,7 @@ Servo rf_motor;
 
 
 int speed_val = 120;
-const int baseSpeed = 120;   // µs offset into mecanumDrive
+const int baseSpeed = 150;   // µs offset into mecanumDrive
 int speed_change;
 
 // ----------------------------
@@ -295,19 +300,19 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 
 void realign_to_fire() {
   int dif = abs(sensorValues[3] - sensorValues[2]);
-        if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) { //if light detected
+        if (sensorValues[3] > 130 && sensorValues[2] > 130 && (dif <= 80)) { //if light detected
             SerialCom->println(sensorValues[3]);
             SerialCom->println(sensorValues[2]);
             move_input = {0.0f, 0.0f, 0.0f}; // STOP
             realign_to_fire_command= STOP;
             realign_to_fire_output_flag= 0;
-        } else if (sensorValues[2] < 100 && sensorValues[3] < 100) { //else if no light detected
+        } else if (sensorValues[2] < 130 && sensorValues[3] < 130) { //else if no light detected
           if (last_dir == RIGHT ) {
-            move_input = {0.0f, 0.0f, -0.8f}; //ANTI-CLOCKWISE
+            move_input = {0.0f, 0.0f, 0.8f}; //ANTI-CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
           } else if (last_dir == LEFT) {
-            move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
+            move_input = {0.0f, 0.0f, -0.8f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
           }
@@ -316,7 +321,6 @@ void realign_to_fire() {
 
 void detect_fire()
 {
-  SerialCom->println(scan_360);
     //initial scan for fire
     if (scan_360 == 0 && fires_extinguished == 0) {
         //make sure enough space for robot to turn 360 degrees
@@ -329,12 +333,28 @@ void detect_fire()
         } else if (spin_angle < 345.0) {
             // SerialCom->println("spinning");
             int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 200 && sensorValues[2] > 200 && dif <= 50) {
-                SerialCom->println(spin_angle);
-                detect_angles[scan_number] = spin_angle;
-                detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) / 2.0f; // or some function of sensorValues[2] and sensorValues[3]
-                scan_number++;
-            }
+            if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif <= 50) {
+              SerialCom->print(sensorValues[3]);
+              SerialCom->println(",");
+              SerialCom->println(sensorValues[2]);
+              detect_angles[scan_number] = spin_angle;
+              detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) /2; // or some function of sensorValues[2] and sensorValues[3]
+              scan_number++;
+              // cummulative_sensor_value += (sensorValues[3] + sensorValues[2]) / 2;
+              // spin_angle_cummulative += spin_angle;
+              // val_counter++;
+            } 
+            // else if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif > 50) {
+            //     if (spin_angle_average != spin_angle_cummulative / val_counter) {
+            //       spin_angle_average = spin_angle_cummulative / val_counter;
+            //       sensor_value_average = cummulative_sensor_value / val_counter;
+            //       // SerialCom->println(sensor_value_average);
+            //       // SerialCom->println(spin_angle_average);
+            //       detect_angles[scan_number] = spin_angle_average;
+            //       detect_distances[scan_number] = sensor_value_average; // or some function of sensorValues[2] and sensorValues[3]
+            //       scan_number++;
+            //     }
+            // }
             move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE 
             detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
@@ -374,6 +394,7 @@ void detect_fire()
         //     detect_fire_output_flag = 1;
         // }
     // } 
+
 }
 
 // cruise function output command and flag
@@ -557,25 +578,25 @@ void extinguish_fire()
 {
     //check if light is detected and sonar is close enough to extinguish
     //if close enough check phototransistors values to check if centered
-    //if centered, turn fan on
-    if (/*sensor values >= threshold && sonar < 10*/) {
-      //compare short distance phtotransistor values to check if fire is centered
-      int dif = /* sensor 1 - sensor 2*/ 
-      if (dif >= 50) {
-        //turn slightly clockwise
-      } else if (dif < -50) {
-        //turn slightly anticlockwise
-      } else {
-        //turn fan on
-      }
-      extinguish_fire_output_flag = 1;
-    } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
-      extinguish_fire_command = FAN_OFF;
-      fires_extinguished++;
-      extinguish_fire_output_flag = 0;
-    } else {
-      extinguish_fire_output_flag = 0;
-    }
+    // //if centered, turn fan on
+    // if (/*sensor values >= threshold && sonar < 10*/) {
+    //   //compare short distance phtotransistor values to check if fire is centered
+    //   int dif = /* sensor 1 - sensor 2*/ 
+    //   if (dif >= 50) {
+    //     //turn slightly clockwise
+    //   } else if (dif < -50) {
+    //     //turn slightly anticlockwise
+    //   } else {
+    //     //turn fan on
+    //   }
+    //   extinguish_fire_output_flag = 1;
+    // } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
+    //   extinguish_fire_command = FAN_OFF;
+    //   fires_extinguished++;
+    //   extinguish_fire_output_flag = 0;
+    // } else {
+    //   extinguish_fire_output_flag = 0;
+    // }
 
 
 }
@@ -643,6 +664,9 @@ void robotMove() {
     break;
     case FAN_ON:
     //turn fan on
+    break;
+    case FAN_OFF:
+    //turn fan off
     break;
   }
 }
