@@ -299,23 +299,39 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 }
 
 void realign_to_fire() {
-  int dif = abs(sensorValues[3] - sensorValues[2]);
-        if (sensorValues[3] > 130 && sensorValues[2] > 130 && (dif <= 80)) { //if light detected
-            SerialCom->println(sensorValues[3]);
-            SerialCom->println(sensorValues[2]);
-            move_input = {0.0f, 0.0f, 0.0f}; // STOP
-            realign_to_fire_command= STOP;
-            realign_to_fire_output_flag= 0;
-        } else if (sensorValues[2] < 130 && sensorValues[3] < 130) { //else if no light detected
-          if (last_dir == RIGHT ) {
-            move_input = {0.0f, 0.0f, 0.8f}; //ANTI-CLOCKWISE
-            realign_to_fire_command = MOVE;
-            realign_to_fire_output_flag = 1;
-          } else if (last_dir == LEFT) {
-            move_input = {0.0f, 0.0f, -0.8f}; //CLOCKWISE
-            realign_to_fire_command = MOVE;
-            realign_to_fire_output_flag = 1;
-          }
+  float rotate;
+  if (last_dir == LEFT) {
+    rotate =  -1.0;
+  } else {
+    rotate = 1.0;
+  }
+
+        if (sensorValues[3] > 10 || sensorValues[2] > 10) { //if light detected by long range
+        uint8_t dif = sensorValues[1] - sensorValues[0];
+        SerialCom->println(dif);
+            if (sensorValues[1] > 10 && sensorValues[0] > 10 && abs(dif) >= 10) {
+              move_input = {0.0f, 0.0f, (rotate*0.4f)}; 
+              realign_to_fire_command= MOVE;
+              realign_to_fire_output_flag= 1;
+            } else if (sensorValues[1] > 10 && sensorValues[0] > 10 && dif < -15) {
+              move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE if left sensor
+              realign_to_fire_command = MOVE;
+              realign_to_fire_output_flag = 1;
+              rotate = -1.0;
+            } else if (sensorValues[1] > 10 && sensorValues[0] > 10 && dif > 15) {
+              move_input = {0.0f, 0.0f, 0.5f}; //ANTI if right sensor
+              realign_to_fire_command = MOVE;
+              realign_to_fire_output_flag = 1;
+              rotate = 1.0;
+            } else {
+              move_input = {0.0f, 0.0f, 0.0f}; //STOP
+              realign_to_fire_command = STOP;
+              realign_to_fire_output_flag = 0;
+            }
+        } else if (sensorValues[2] <= 10 || sensorValues[3] <= 10) { //else if no light detected
+          move_input = {0.0f, 0.0f, (1.0f*rotate)}; //CLOCKWISE
+          realign_to_fire_command = MOVE;
+          realign_to_fire_output_flag = 1;
         }
 }
 
@@ -333,28 +349,28 @@ void detect_fire()
         } else if (spin_angle < 345.0) {
             // SerialCom->println("spinning");
             int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif <= 50) {
+            if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif <= 80) {
               SerialCom->print(sensorValues[3]);
               SerialCom->println(",");
               SerialCom->println(sensorValues[2]);
-              detect_angles[scan_number] = spin_angle;
-              detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) /2; // or some function of sensorValues[2] and sensorValues[3]
-              scan_number++;
-              // cummulative_sensor_value += (sensorValues[3] + sensorValues[2]) / 2;
-              // spin_angle_cummulative += spin_angle;
-              // val_counter++;
+              // detect_angles[scan_number] = spin_angle;
+              // detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) /2; // or some function of sensorValues[2] and sensorValues[3]
+              // scan_number++;
+              cummulative_sensor_value += (sensorValues[3] + sensorValues[2]) / 2;
+              spin_angle_cummulative += spin_angle;
+              val_counter++;
             } 
-            // else if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif > 50) {
-            //     if (spin_angle_average != spin_angle_cummulative / val_counter) {
-            //       spin_angle_average = spin_angle_cummulative / val_counter;
-            //       sensor_value_average = cummulative_sensor_value / val_counter;
-            //       // SerialCom->println(sensor_value_average);
-            //       // SerialCom->println(spin_angle_average);
-            //       detect_angles[scan_number] = spin_angle_average;
-            //       detect_distances[scan_number] = sensor_value_average; // or some function of sensorValues[2] and sensorValues[3]
-            //       scan_number++;
-            //     }
-            // }
+            else if (sensorValues[3] > 130 && sensorValues[2] > 130 && dif > 80) {
+                if (spin_angle_average != spin_angle_cummulative / val_counter) {
+                  spin_angle_average = spin_angle_cummulative / val_counter;
+                  sensor_value_average = cummulative_sensor_value / val_counter;
+                  // SerialCom->println(sensor_value_average);
+                  // SerialCom->println(spin_angle_average);
+                  detect_angles[scan_number] = spin_angle_average;
+                  detect_distances[scan_number] = sensor_value_average; // or some function of sensorValues[2] and sensorValues[3]
+                  scan_number++;
+                }
+            }
             move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE 
             detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
