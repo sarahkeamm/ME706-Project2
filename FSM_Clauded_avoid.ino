@@ -129,7 +129,7 @@ float front_left_IR  = 0;
 float front_right_IR = 0;
 float rear_left_IR   = 0;
 float rear_right_IR  = 0;
-float sonar_fwd      = 999;
+float sonar    = 999;
 
 // ----------------------------------------------------------------
 //  PHOTO TRANSISTORS
@@ -395,269 +395,164 @@ float scan_for_fire() {
 }
 
 void avoid_obstacle() {
-    // ── Read all sensors ────────────────────────────────────────
-    bool fl_blocked = (front_left_IR  < IR_FRONT_WARNING_CM);
-    bool fr_blocked = (front_right_IR < IR_FRONT_WARNING_CM);
-    bool rl_blocked = (rear_left_IR   < IR_REAR_DANGER_CM);
-    bool rr_blocked = (rear_right_IR  < IR_REAR_DANGER_CM);
+    bool fl_blocked  = (front_left_IR  < IR_FRONT_WARNING_CM);
+    bool fr_blocked  = (front_right_IR < IR_FRONT_WARNING_CM);
+    bool rl_blocked  = (rear_left_IR   < IR_REAR_DANGER_CM);
+    bool rr_blocked  = (rear_right_IR  < IR_REAR_DANGER_CM);
 
-    // Rear escape: if rear is blocked and front is clear, nudge forward (highest priority escape)
-    if ((rl_blocked || rr_blocked) && !fl_blocked && !fr_blocked && sonar_fwd >= SONAR_OBSTACLE_CM) {
-        avoid_obstacle_output_flag = 1;
-        avoid_obstacle_command     = {0.0f, 0.5f, 0.0f};
-        currently_strafing         = false;
-        Serial.println(F("[AVOID] Rear blocked, front clear — nudging forward"));
-        return;
-    }
+    
 
-    // ── Dispatch based on where sonar is pointing ───────────────
-    switch (currentServoState) {
-
-        // ============================================================
-        case SERVO_STATE_FRONT:
-        // ============================================================
-        {
-            bool sonar_blocked = (sonar_fwd < SONAR_OBSTACLE_CM);
-
-            // All clear → cruise
-            if (!fl_blocked && !sonar_blocked && !fr_blocked && !rl_blocked && !rr_blocked) {
-                avoid_obstacle_output_flag = 0;
-                currently_strafing         = false;
-                avoid_strafe_dir           = 0.0f;
-                if (last_strafe_dir != 0.0f) needs_realign = true;
-                Serial.println(F("[AVOID] All clear"));
-                return;
-            }
-
-            // Only right IR blocked → strafe left
-            if (!fl_blocked && !sonar_blocked && fr_blocked && !rl_blocked && !rr_blocked) {
-                _setStrafe(-1.0f, "FR only — strafe left");
-                return;
-            }
-
-            // Right IR + rear-left blocked → strafe right
-            if (!fl_blocked && !sonar_blocked && fr_blocked && rl_blocked && !rr_blocked) {
-                _setStrafe(1.0f, "FR+RL — strafe right");
-                return;
-            }
-
-            // Right IR + rear-right blocked → strafe left
-            if (!fl_blocked && !sonar_blocked && fr_blocked && !rl_blocked && rr_blocked) {
-                _setStrafe(-1.0f, "FR+RR — strafe left");
-                return;
-            }
-
-            // Only left IR blocked → strafe right
-            if (fl_blocked && !sonar_blocked && !fr_blocked && !rl_blocked && !rr_blocked) {
-                _setStrafe(1.0f, "FL only — strafe right");
-                return;
-            }
-
-            // Left IR + rear-left blocked → strafe right
-            if (fl_blocked && !sonar_blocked && !fr_blocked && rl_blocked && !rr_blocked) {
-                _setStrafe(1.0f, "FL+RL — strafe right");
-                return;
-            }
-
-            // Left IR + rear-right blocked → strafe left
-            if (fl_blocked && !sonar_blocked && !fr_blocked && !rl_blocked && rr_blocked) {
-                _setStrafe(-1.0f, "FL+RR — strafe left");
-                return;
-            }
-
-            // Sonar only, front clear → sweep to choose side
-            if (!fl_blocked && sonar_blocked && !fr_blocked && !rl_blocked && !rr_blocked) {
-                Serial.println(F("[AVOID] Sonar only — sweeping"));
-                _sweepAndChoose();
-                return;
-            }
-
-            // Sonar + rear-left blocked → strafe right
-            if (!fl_blocked && sonar_blocked && !fr_blocked && rl_blocked && !rr_blocked) {
-                _setStrafe(1.0f, "Sonar+RL — strafe right");
-                return;
-            }
-
-            // Sonar + rear-right blocked → strafe left
-            if (!fl_blocked && sonar_blocked && !fr_blocked && !rl_blocked && rr_blocked) {
-                _setStrafe(-1.0f, "Sonar+RR — strafe left");
-                return;
-            }
-
-            // Both front IR + sonar blocked, rear clear → sweep to choose side
-            if (fl_blocked && sonar_blocked && fr_blocked && !rl_blocked && !rr_blocked) {
-                Serial.println(F("[AVOID] Both IR + sonar — sweeping"));
-                _sweepAndChoose();
-                return;
-            }
-
-            // Both front IR + sonar + rear-left blocked → strafe right
-            if (fl_blocked && sonar_blocked && fr_blocked && rl_blocked && !rr_blocked) {
-                _setStrafe(1.0f, "All front+RL — strafe right");
-                return;
-            }
-
-            // Both front IR + sonar + rear-right blocked → strafe left
-            if (fl_blocked && sonar_blocked && fr_blocked && !rl_blocked && rr_blocked) {
-                _setStrafe(-1.0f, "All front+RR — strafe left");
-                return;
-            }
-
-            // Fallback for any remaining combination: use fire heading to pick direction
-            {
-                float fire_error = wrapAngle(heading_locked - getHeading());
-                float dir = (fire_error <= 0.0f) ? -1.0f : 1.0f;
-                _setStrafe(dir, "Fallback — heading-based strafe");
-            }
+    if (last_strafe_dir == 0) {
+        bool sonar_blocked = (sonar < SONAR_OBSTACLE_CM);
+        // ── ESCAPE (was separate function) ──────────────────────────
+        // Rear blocked and front is clear → nudge forward to escape
+        if ((rl_blocked || rr_blocked) && !fl_blocked && !fr_blocked && !sonar_blocked) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {0.0f, 0.5f, 0.0f};
+            last_strafe_dir = 0;
+            currently_strafing         = false;
+            Serial.println(F("[AVOID] Rear blocked, front clear — nudging forward"));
+            return;
+        }
+        // prev command was forward
+         // ── ALL CLEAR ───────────────────────────────────────────────
+        if (!fl_blocked && !sonar_blocked && !fr_blocked && !rl_blocked && !rr_blocked) {
+            avoid_obstacle_output_flag = 0;
+            avoid_strafe_dir           = 0.0f;
+            avoid_aligned              = false;
+            currently_strafing         = false;
+            last_strafe_dir = 0;
+            sensor_servo.write(SERVO_CENTRE);
+            Serial.println(F("[AVOID] All clear"));
             return;
         }
 
-        // ============================================================
-        case SERVO_STATE_LEFT:
-        // ============================================================
-        {
-            // Sonar is pointing left; sonar_fwd here is side distance
-            bool side_blocked = (sonar_fwd < SONAR_SIDE_CLEAR_CM);
-
-            // Both front clear, side clear → safe to go forward
-            if (!fl_blocked && !fr_blocked && !side_blocked) {
-                avoid_obstacle_output_flag = 1;
-                avoid_obstacle_command     = {0.0f, DRIVE_SPEED, 0.0f};
-                Serial.println(F("[AVOID][LEFT] Front+side clear — forward"));
-                return;
-            }
-
-            // Left front blocked → wall on left, go right
-            if (fl_blocked) {
-                _setStrafe(1.0f, "[LEFT] FL blocked — strafe right");
-                return;
-            }
-
-            // Rear-right blocked → escape by going right
-            if (rr_blocked) {
-                _setStrafe(1.0f, "[LEFT] RR blocked — strafe right");
-                return;
-            }
-
-            // Left front + right front blocked + left clear → strafe left (opening on that side)
-            if (fl_blocked && fr_blocked && !side_blocked) {
-                _setStrafe(-1.0f, "[LEFT] Both front, side clear — strafe left");
-                return;
-            }
-
-            // Fallback
-            _setStrafe(1.0f, "[LEFT] Fallback — strafe right");
+         // ── ONLY LEFT IR blocked → strafe right ─────────────────────
+        if (fl_blocked && !fr_blocked && !rr_blocked) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {1.0f, 0.0f, 0.0f};
+            last_strafe_dir            = 1.0f;
+            currently_strafing         = true;
+            Serial.println(F("[AVOID] FL only — strafe right"));
+            return;
+        } else if (fl_blocked && !fr_blocked && rr_blocked) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {-1.0f, 0.0f, 0.0f};
+            last_strafe_dir            = -1.0f;
+            currently_strafing         = true;
+            Serial.println(F("[AVOID] FL only — strafe left"));
             return;
         }
 
-        // ============================================================
-        case SERVO_STATE_RIGHT:
-        // ============================================================
-        {
-            bool side_blocked = (sonar_fwd < SONAR_SIDE_CLEAR_CM);
-
-            // Both front clear, side clear → forward
-            if (!fl_blocked && !fr_blocked && !side_blocked) {
-                avoid_obstacle_output_flag = 1;
-                avoid_obstacle_command     = {0.0f, DRIVE_SPEED, 0.0f};
-                Serial.println(F("[AVOID][RIGHT] Front+side clear — forward"));
-                return;
-            }
-
-            // Left front blocked → wall asymmetry, go left
-            if (fl_blocked) {
-                _setStrafe(-1.0f, "[RIGHT] FL blocked — strafe left");
-                return;
-            }
-
-            // Rear-right blocked → escape left
-            if (rr_blocked) {
-                _setStrafe(-1.0f, "[RIGHT] RR blocked — strafe left");
-                return;
-            }
-
-            // Left + right front blocked + right side clear → strafe right (opening on that side)
-            if (fl_blocked && fr_blocked && !side_blocked) {
-                _setStrafe(1.0f, "[RIGHT] Both front, side clear — strafe right");
-                return;
-            }
-
-            // Fallback
-            _setStrafe(-1.0f, "[RIGHT] Fallback — strafe left");
+        // ── ONLY RIGHT IR blocked → strafe left ─────────────────────
+        if (!fl_blocked && fr_blocked && !rl_blocked) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {-1.0f, 0.0f, 0.0f};
+            last_strafe_dir            = -1.0f;
+            currently_strafing         = true;
+            Serial.println(F("[AVOID] FR only — strafe left"));
+            return;
+        } else if (!fl_blocked && fr_blocked && rl_blocked) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {1.0f, 0.0f, 0.0f};
+            last_strafe_dir            = 1.0f;
+            currently_strafing         = true;
+            Serial.println(F("[AVOID] FR and RL only — strafe right"));
             return;
         }
-    }
-}
 
-// ================================================================
-//  HELPER: set a strafe command and update shared state
-// ================================================================
-void _setStrafe(float dir, const char* reason) {
-    avoid_obstacle_output_flag = 1;
-    avoid_strafe_dir           = dir;
-    last_strafe_dir            = dir;
-    currently_strafing         = (dir != 0.0f);
-    avoid_obstacle_command     = {dir, 0.0f, 0.0f};
+        if (sonar_blocked || (fl_blocked && fr_blocked)) {
+            // front blocked 
+            stopRobot();
 
-    // Point servo in strafe direction for side monitoring next loop
-    if (dir < 0.0f) {
-        sensor_servo.write(SERVO_LEFT);
-        currentServoState = SERVO_STATE_LEFT;
-    } else if (dir > 0.0f) {
-        sensor_servo.write(SERVO_RIGHT);
-        currentServoState = SERVO_STATE_RIGHT;
+            sensor_servo.write(SERVO_LEFT);
+            delay(1000);
+            float left_dist = read_sonarsensor();
+
+            sensor_servo.write(SERVO_RIGHT);
+            delay(1000);
+            float right_dist = read_sonarsensor();
+
+            sensor_servo.write(SERVO_CENTRE);
+
+            bool left_clear  = (left_dist  >= SONAR_SIDE_CLEAR_CM);
+            bool right_clear = (right_dist >= SONAR_SIDE_CLEAR_CM);
+             if (left_clear && !right_clear)    {
+                 avoid_strafe_dir = -1.0f;  // left clear  → go left
+             }  else {
+                avoid_strafe_dir =  1.0f;  // right clear or both clear → go right
+             } 
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {avoid_strafe_dir, 0.0f, 0.0f};
+            last_strafe_dir            = avoid_strafe_dir;
+            currently_strafing         = true;
+            return;
+        }
+    } else if (last_strafe_dir == -1) {
+        bool sonar_blocked = (sonar < SONAR_OBSTACLE_CM);
+        // prev command was left -- sonar should be facing left 
+        if (!fl_blocked && !fr_blocked) {
+            avoid_obstacle_output_flag = 0;
+            avoid_strafe_dir           = 0.0f;
+            avoid_aligned              = false;
+            currently_strafing         = false;
+            last_strafe_dir = 0;
+            sensor_servo.write(SERVO_CENTRE);
+            delay(500);
+            Serial.println(F("[AVOID] All clear"));
+            return;
+        }
+
+        if (sonar_blocked || rl_blocked) {
+            // go right 
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {1.0, 0.0f, 0.0f};
+            last_strafe_dir            = 1.0;
+            currently_strafing         = true;
+            return;
+        } else {
+            // go left
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {-1.0, 0.0f, 0.0f};
+            last_strafe_dir            = -1.0;
+            currently_strafing         = true;
+            return;
+        }
+
+
     } else {
-        sensor_servo.write(SERVO_CENTRE);
-        currentServoState = SERVO_STATE_FRONT;
+        bool sonar_blocked = (sonar < SONAR_OBSTACLE_CM);
+        // prev command was right 
+         if (!fl_blocked && !fr_blocked) {
+            avoid_obstacle_output_flag = 0;
+            avoid_strafe_dir           = 0.0f;
+            avoid_aligned              = false;
+            currently_strafing         = false;
+            last_strafe_dir = 0;
+            sensor_servo.write(SERVO_CENTRE);
+            Serial.println(F("[AVOID] All clear"));
+            return;
+        }
+
+        if (sonar_blocked || rr_blocked) {
+            // go left
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {-1.0, 0.0f, 0.0f};
+            last_strafe_dir            = -1.0;
+            currently_strafing         = true;
+            return;
+        } else {
+            // go right
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = {1.0, 0.0f, 0.0f};
+            last_strafe_dir            = 1.0;
+            currently_strafing         = true;
+            return;
+        }
     }
 
-    Serial.print(F("[AVOID] "));
-    Serial.println(reason);
+
 }
-
-// ================================================================
-//  HELPER: sweep servo left/right to pick the clearer side,
-//          then immediately set the strafe direction.
-//          Blocks briefly (2 × SWEEP_SETTLE_MS) — only called
-//          when we need to make a direction decision.
-// ================================================================
-void _sweepAndChoose() {
-    stopRobot();
-
-    sensor_servo.write(SERVO_LEFT);
-    delay(SWEEP_SETTLE_MS);
-    float left_dist = read_sonarsensor();
-
-    sensor_servo.write(SERVO_RIGHT);
-    delay(SWEEP_SETTLE_MS);
-    float right_dist = read_sonarsensor();
-
-    // Return to centre while we decide
-    sensor_servo.write(SERVO_CENTRE);
-    currentServoState = SERVO_STATE_FRONT;
-    delay(200);
-
-    bool left_blocked  = (left_dist  < SONAR_SIDE_CLEAR_CM);
-    bool right_blocked = (right_dist < SONAR_SIDE_CLEAR_CM);
-
-    Serial.print(F("[AVOID] Sweep — L:")); Serial.print(left_dist, 1);
-    Serial.print(F(" R:")); Serial.println(right_dist, 1);
-
-    float dir;
-    if (!left_blocked && right_blocked) {
-        dir = -1.0f;  // right blocked → go left
-    } else if (left_blocked && !right_blocked) {
-        dir = 1.0f;   // left blocked → go right
-    } else {
-        // Both clear or both blocked: use fire heading as tiebreaker
-        float fire_error = wrapAngle(heading_locked - getHeading());
-        dir = (fire_error <= 0.0f) ? -1.0f : 1.0f;
-        Serial.println(F("[AVOID] Sweep tie — using fire heading"));
-    }
-
-    _setStrafe(dir, "post-sweep");
-}
-
 
 void realign_to_fire() {
     if (!needs_realign) {
@@ -727,6 +622,8 @@ void serial_read_conditions() {
     for (int i = 0; i < 4; i++) {
         sensorValues[i] = analogRead(Photopins[i]);
     }
+
+    sonar = read_sonarsensor();
 
     
 
@@ -947,6 +844,7 @@ void mecanumDrive(float x, float y, float rotation) {
   }
   else if (x == -1){
     sensor_servo.write(180);
+
   }
   else {
     sensor_servo.write(90);
