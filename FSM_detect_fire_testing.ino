@@ -310,12 +310,12 @@ void realign_to_fire() {
             realign_to_fire_command = STOP;
             realign_to_fire_output_flag = 0;
           } else if (dif > 15) {
-            move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+            move_input = {0.0f, 0.0f, -0.4f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = -1.0;
           } else if (dif < -15) {
-            move_input = {0.0f, 0.0f, 0.5f}; //ANTI
+            move_input = {0.0f, 0.0f, 0.4f}; //ANTI
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = 1.0;
@@ -368,6 +368,9 @@ void detect_fire()
                   // SerialCom->println(spin_angle_average);
                   detect_angles[scan_number] = spin_angle_average;
                   detect_distances[scan_number] = sensor_value_average; // or some function of sensorValues[2] and sensorValues[3]
+                  cummulative_sensor_value = 0;
+                  spin_angle_cummulative = 0;
+                  val_counter = 0;
                   scan_number++;
                 }
             }
