@@ -77,6 +77,7 @@ int val_counter = 0;
 
 
 //realign variables
+int rotate = 0;
 int last_dir = 0;
 #define RIGHT 1
 #define LEFT 0
@@ -299,37 +300,36 @@ speed_change = 0; //make speed change equals 0 after updating the speed value
 }
 
 void realign_to_fire() {
-  float rotate;
-  if (last_dir == LEFT) {
-    rotate =  -1.0;
-  } else {
-    rotate = 1.0;
-  }
 
         if (sensorValues[3] > 10 || sensorValues[2] > 10) { //if light detected by long range
-        uint8_t dif = sensorValues[1] - sensorValues[0];
+        int dif = sensorValues[0] - sensorValues[1];
         SerialCom->println(dif);
-            if (sensorValues[1] > 10 && sensorValues[0] > 10 && abs(dif) >= 10) {
-              move_input = {0.0f, 0.0f, (rotate*0.4f)}; 
-              realign_to_fire_command= MOVE;
-              realign_to_fire_output_flag= 1;
-            } else if (sensorValues[1] > 10 && sensorValues[0] > 10 && dif < -15) {
-              move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE if left sensor
-              realign_to_fire_command = MOVE;
-              realign_to_fire_output_flag = 1;
-              rotate = -1.0;
-            } else if (sensorValues[1] > 10 && sensorValues[0] > 10 && dif > 15) {
-              move_input = {0.0f, 0.0f, 0.5f}; //ANTI if right sensor
-              realign_to_fire_command = MOVE;
-              realign_to_fire_output_flag = 1;
-              rotate = 1.0;
-            } else {
-              move_input = {0.0f, 0.0f, 0.0f}; //STOP
-              realign_to_fire_command = STOP;
-              realign_to_fire_output_flag = 0;
-            }
+        if (sensorValues[1] > 10 && sensorValues[0] > 10) {
+          if (abs(dif) <= 15) {
+            move_input = {0.0f, 0.0f, 0.0f}; //STOP
+            realign_to_fire_command = STOP;
+            realign_to_fire_output_flag = 0;
+          } else if (dif > 15) {
+            move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+            realign_to_fire_command = MOVE;
+            realign_to_fire_output_flag = 1;
+            rotate = -1.0;
+          } else if (dif < -15) {
+            move_input = {0.0f, 0.0f, 0.5f}; //ANTI
+            realign_to_fire_command = MOVE;
+            realign_to_fire_output_flag = 1;
+            rotate = 1.0;
+          } 
+        }
         } else if (sensorValues[2] <= 10 || sensorValues[3] <= 10) { //else if no light detected
-          move_input = {0.0f, 0.0f, (1.0f*rotate)}; //CLOCKWISE
+        if (last_dir == LEFT) {
+          rotate =  -1;
+          last_dir = -1;
+        } else if (last_dir == RIGHT) {
+          rotate = 1;
+          last_dir = -1;
+        }
+          move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
           realign_to_fire_command = MOVE;
           realign_to_fire_output_flag = 1;
         }
@@ -677,6 +677,7 @@ void robotMove() {
     break;
     case STOP:
     stopRobot();
+    delay(200);
     break;
     case FAN_ON:
     //turn fan on
