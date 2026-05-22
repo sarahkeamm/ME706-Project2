@@ -611,8 +611,6 @@ void extinguish_fire()
     } else {
       extinguish_fire_output_flag = 0;
     }
-
-
 }
 
 

@@ -58,23 +58,46 @@ int avoid_obstacle_output_flag = 0;
 int extinguish_fire_output_flag = 0;
 int realign_to_fire_output_flag = 0;
 
-// define threshold of phototransistor difference
-int photo_dead_zone = 5;
-
-// fire detecting sensors and variables
-int sensorValues[4];
-int Photopins[] = {A8, A9, A10, A11}; // phototransistor pins
+// ----------------------------------------------------------------
+//  FIRE DETECTION VARIABLES AND CONSTANTS
+// ----------------------------------------------------------------
+float headingOffset = 0.0f;
+float currentHeading = 0.0f;
+float headingError = 0.0f;
+float velX = 0.0f;
+float distX = 0.0f;
+unsigned long lastTimeMicros = 0;
 int fires_extinguished = 0;
 bool scan_360 = 0;
 int scan_number = 0;
 float spin_angle = 0;
 int detect_angles[2] = {0, 0};
+int detect_distances[2] = {0, 0};
+int cummulative_sensor_value = 0;
+float spin_angle_cummulative = 0.0f;
+float spin_angle_average = 0;
+int sensor_value_average = 0;
+int val_counter = 0;
+
+// ----------------------------------------------------------------
+//  REALIGN VARIABLES AND CONSTANTS
+// ----------------------------------------------------------------
+int rotate = 0;
+int last_dir = 0;
+#define RIGHT 1
+#define LEFT 0
 
 int ir_detect;
 int ultrasonic_distance;
 int bumper_left;
 int bumper_right;
 int bumper_back;
+
+// ----------------------------------------------------------------
+//  PHOTO TRANSISTORS
+// ----------------------------------------------------------------
+int sensorValues[4];
+int Photopins[] = {A8, A9, A10, A11}; // phototransistor pins
 
 // create servo objects for each motor
 Servo lf_motor;
@@ -93,12 +116,6 @@ float avoid_strafe_dir  = 0.0f;
 bool  avoid_aligned     = false;
 bool  currently_strafing = false;
 float last_strafe_dir   = 0.0f;
-
-//realign variables
-int rotate = 0;
-int last_dir = 0;
-#define RIGHT 1
-#define LEFT 0
 
 const float IR_FRONT_DANGER_CM  = 7.0f;
 const float IR_FRONT_WARNING_CM = 15.0f;
@@ -249,19 +266,21 @@ STATE initialising() {
     //spin_to_heading(FIRE_BEARING_DEG);
     //heading_locked = getHeading();
     //straightPID.reset();
-    realign_to_fire_output_flag = 1;
 
     return RUNNING;
 }
 
-STATE running() {
-    serial_read_conditions();
+STATE running(){
+    serial_read_conditions(); //read all sensors
+    // detect_fire();
     cruise();
     avoid_obstacle();
-    //realign_to_fire();
+    realign_to_fire();
+    // extinguish_fire();
     arbitrate();
-    return RUNNING;
-}
+    //should set all sensor values to 0 here
+    return RUNNING; 
+} // STATE REPEATLY
 
 STATE stopped() {
     disable_motors();
@@ -283,19 +302,21 @@ void realign_to_fire() {
 
         if (sensorValues[3] > 10 || sensorValues[2] > 10) { //if light detected by long range
         int dif = sensorValues[0] - sensorValues[1];
-        SerialCom->println(dif);
-        if (sensorValues[1] > 10 && sensorValues[0] > 10) {
+        if (sensorValues[1] > 30 && sensorValues[0] > 30) {
           if (abs(dif) <= 15) {
             move_input = {0.0f, 0.0f, 0.0f}; //STOP
             realign_to_fire_command = STOP;
             realign_to_fire_output_flag = 0;
+            SerialCom->print(sensorValues[0]);
+            SerialCom->println(",");
+            SerialCom->println(sensorValues[1]);
           } else if (dif > 15) {
-            move_input = {0.0f, 0.0f, -0.4f}; //CLOCKWISE
+            move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = -1.0;
           } else if (dif < -15) {
-            move_input = {0.0f, 0.0f, 0.4f}; //ANTI
+            move_input = {0.0f, 0.0f, 0.5f}; //ANTI
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = 1.0;
@@ -357,6 +378,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {1.0f, 0.0f, 0.0f};
             last_strafe_dir            = 1.0f;
+            last_dir = RIGHT;
             currently_strafing         = true;
             Serial.println(F("[AVOID] FL only — strafe right"));
             return;
@@ -365,6 +387,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {-1.0f, 0.0f, 0.0f};
             last_strafe_dir            = -1.0f;
+            last_dir = LEFT;
             currently_strafing         = true;
             Serial.println(F("[AVOID] FL + RR — strafe left"));
             return;
@@ -376,6 +399,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {-1.0f, 0.0f, 0.0f};
             last_strafe_dir            = -1.0f;
+            last_dir = LEFT;
             currently_strafing         = true;
             Serial.println(F("[AVOID] FR only — strafe left"));
             return;
@@ -384,6 +408,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {1.0f, 0.0f, 0.0f};
             last_strafe_dir            = 1.0f;
+            last_dir = RIGHT;
             currently_strafing         = true;
             Serial.println(F("[AVOID] FR + RL — strafe right"));
             return;
@@ -418,6 +443,7 @@ void avoid_obstacle() {
             avoid_obstacle_command = MOVE;
             move_input             = {avoid_strafe_dir, 0.0f, 0.0f};
             last_strafe_dir    = avoid_strafe_dir;
+            last_dir = (avoid_strafe_dir == -1.0f) ? LEFT : RIGHT;
             currently_strafing = true;
             strafe_start_ms    = millis();   // ← ADD THIS
             return;
@@ -442,6 +468,7 @@ void avoid_obstacle() {
                     avoid_obstacle_command     = MOVE;
                     move_input                 = {-1.0f, 0.0f, 0.0f};
                     last_strafe_dir            = -1.0f;
+                    last_dir = LEFT;
                     currently_strafing         = true;
                     Serial.println(F("[AVOID] IR clear but sonar fwd still blocked — keep strafing left"));
                     return;
@@ -452,7 +479,7 @@ void avoid_obstacle() {
                 avoid_strafe_dir           = 0.0f;
                 avoid_aligned              = false;
                 currently_strafing         = false;
-                last_strafe_dir            = 0;
+                last_dir = 0;
                 Serial.println(F("[AVOID] IR + sonar fwd confirmed clear — exiting"));
                 return;
             }
@@ -473,6 +500,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {1.0f, 0.0f, 0.0f};
             last_strafe_dir            = 1.0f;
+            last_dir = RIGHT;
             currently_strafing         = true;
             return;
         } else {
@@ -480,6 +508,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {-1.0f, 0.0f, 0.0f};
             last_strafe_dir            = -1.0f;
+            last_dir = LEFT;
             currently_strafing         = true;
             return;
         }
@@ -503,6 +532,7 @@ void avoid_obstacle() {
                     avoid_obstacle_command     = MOVE;
                     move_input                 = {1.0f, 0.0f, 0.0f};
                     last_strafe_dir            = 1.0f;
+                    last_dir                   = RIGHT;
                     currently_strafing         = true;
                     Serial.println(F("[AVOID] IR clear but sonar fwd still blocked — keep strafing right"));
                     return;
@@ -532,6 +562,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {-1.0f, 0.0f, 0.0f};
             last_strafe_dir            = -1.0f;
+            last_dir                   = LEFT;
             currently_strafing         = true;
             return;
         } else {
@@ -539,6 +570,7 @@ void avoid_obstacle() {
             avoid_obstacle_command     = MOVE;
             move_input                 = {1.0f, 0.0f, 0.0f};
             last_strafe_dir            = 1.0f;
+            last_dir                   = RIGHT;
             currently_strafing         = true;
             return;
         }
@@ -590,12 +622,21 @@ void detect_fire() {
 // ================================================================
 //  EXTINGUISH FIRE
 // ================================================================
-void extinguish_fire() {
-    if (sensorValues[1] <= 10 && sensorValues[0] <= 10) {
-        extinguish_fire_command    = FAN_ON;
-        extinguish_fire_output_flag = 1;
+void extinguish_fire()
+{
+    //check if light is detected and sonar is close enough to extinguish
+    //if close enough check phototransistors values to check if centered
+    // //if centered, turn fan on
+    if (realign_to_fire_output_flag == 0 && sensor reading > thres && sonar < 10*/) {
+      //compare short distance phtotransistor values to check if fire is centered
+      //turn fan on
+      extinguish_fire_output_flag = 1;
+    } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
+      extinguish_fire_command = FAN_OFF;
+      fires_extinguished++;
+      extinguish_fire_output_flag = 0;
     } else {
-        extinguish_fire_output_flag = 0;
+      extinguish_fire_output_flag = 0;
     }
 }
 
@@ -626,6 +667,8 @@ void serial_read_conditions() {
     for (int i = 0; i < 4; i++) {
         sensorValues[i] = analogRead(Photopins[i]);
     }
+
+    spin_angle = GYRO_reading();
 
     sonar = read_sonarsensor();
 }
