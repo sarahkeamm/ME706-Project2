@@ -2,9 +2,8 @@
 #include <Servo.h>
 #include <Adafruit_BNO08x.h>
 
-// TEST VARIABLES
-unsigned long lastDebugPrint = 0;
-const int DEBUG_INTERVAL_MS = 200;
+unsigned long strafe_start_ms   = 0;
+const unsigned long MIN_STRAFE_MS = 800;   // tune this up if needed
 
 // define the control pin of each motor
 const byte left_front = 46;
@@ -106,7 +105,7 @@ const float IR_FRONT_WARNING_CM = 15.0f;
 const float IR_REAR_DANGER_CM   = 15.0f;
 const float SONAR_OBSTACLE_CM   = 15.0f;
 const float SONAR_CLEAR_CM      = 10.0f;
-const float SONAR_SIDE_CLEAR_CM = 30.0f;
+const float SONAR_SIDE_CLEAR_CM = 25.0f;
 
 // ----------------------------------------------------------------
 //  IR SENSOR PINS
@@ -137,7 +136,6 @@ float sonar          = 999;
 //  FIRE / HEADING
 // ----------------------------------------------------------------
 float FIRE_BEARING_DEG = 0.0f;
-bool  needs_realign    = false;
 
 // ----------------------------------------------------------------
 //  IMU
@@ -260,7 +258,7 @@ STATE running() {
     serial_read_conditions();
     cruise();
     avoid_obstacle();
-    realign_to_fire();
+    //realign_to_fire();
     arbitrate();
     return RUNNING;
 }
@@ -274,7 +272,8 @@ STATE stopped() {
 //  CRUISE
 // ================================================================
 void cruise() {
-    float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
+    //float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
+    float correction = 0; // --------------------------- need to change once integrated with align_to_fire
     cruise_command = MOVE;
     move_input     = {0.0f, DRIVE_SPEED, correction};
     cruise_output_flag = 1;
@@ -347,6 +346,7 @@ void avoid_obstacle() {
             currently_strafing         = false;
             last_strafe_dir            = 0;
             sonar_fwd_triggered        = false;
+            sensor_servo.write(SERVO_CENTRE);
             Serial.println(F("[AVOID] All clear"));
             return;
         }
@@ -417,23 +417,25 @@ void avoid_obstacle() {
 
             avoid_obstacle_command = MOVE;
             move_input             = {avoid_strafe_dir, 0.0f, 0.0f};
-            last_strafe_dir        = avoid_strafe_dir;
-            currently_strafing     = true;
+            last_strafe_dir    = avoid_strafe_dir;
+            currently_strafing = true;
+            strafe_start_ms    = millis();   // ← ADD THIS
             return;
         }
 
     } else if (last_strafe_dir == -1) {
-        bool sonar_side_blocked = (sonar < SONAR_OBSTACLE_CM);
+        bool sonar_side_blocked = (sonar < SONAR_SIDE_CLEAR_CM);
 
         if (!fl_blocked && !fr_blocked) {
             if (sonar_fwd_triggered) {
+                
                 // IR clear but sonar originally triggered — verify forward before exiting
                 stopRobot();
                 sensor_servo.write(SERVO_CENTRE);
-                delay(SWEEP_SETTLE_MS);
+                delay(500);
                 float sonar_fwd_check = read_sonarsensor();
                 sensor_servo.write(SERVO_LEFT);
-                delay(100);
+                delay(500);
 
                 if (sonar_fwd_check < SONAR_OBSTACLE_CM) {
                     avoid_obstacle_output_flag = 1;
@@ -484,16 +486,17 @@ void avoid_obstacle() {
 
     } else {
         // last_strafe_dir == 1
-        bool sonar_side_blocked = (sonar < SONAR_OBSTACLE_CM);
+        bool sonar_side_blocked = (sonar < SONAR_SIDE_CLEAR_CM);
 
         if (!fl_blocked && !fr_blocked) {
             if (sonar_fwd_triggered) {
+              
                 stopRobot();
                 sensor_servo.write(SERVO_CENTRE);
-                delay(SWEEP_SETTLE_MS);
+                delay(500);
                 float sonar_fwd_check = read_sonarsensor();
                 sensor_servo.write(SERVO_RIGHT);
-                delay(100);
+                delay(500);
 
                 if (sonar_fwd_check < SONAR_OBSTACLE_CM) {
                     avoid_obstacle_output_flag = 1;
@@ -769,6 +772,8 @@ void mecanumDrive(float x, float y, float rotation) {
         if (x > 0)       sensor_servo.write(SERVO_RIGHT);
         else if (x < 0)  sensor_servo.write(SERVO_LEFT);
         else              sensor_servo.write(SERVO_CENTRE);
+    } else {
+        sensor_servo.write(SERVO_CENTRE);  // ← ADD THIS
     }
 
     motors_active = true;
