@@ -303,19 +303,21 @@ void realign_to_fire() {
 
         if (sensorValues[3] > 10 || sensorValues[2] > 10) { //if light detected by long range
         int dif = sensorValues[0] - sensorValues[1];
-        SerialCom->println(dif);
-        if (sensorValues[1] > 10 && sensorValues[0] > 10) {
+        if (sensorValues[1] > 30 && sensorValues[0] > 30) {
           if (abs(dif) <= 15) {
             move_input = {0.0f, 0.0f, 0.0f}; //STOP
             realign_to_fire_command = STOP;
             realign_to_fire_output_flag = 0;
+            SerialCom->print(sensorValues[0]);
+            SerialCom->println(",");
+            SerialCom->println(sensorValues[1]);
           } else if (dif > 15) {
-            move_input = {0.0f, 0.0f, -0.4f}; //CLOCKWISE
+            move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = -1.0;
           } else if (dif < -15) {
-            move_input = {0.0f, 0.0f, 0.4f}; //ANTI
+            move_input = {0.0f, 0.0f, 0.5f}; //ANTI
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             rotate = 1.0;
@@ -598,24 +600,17 @@ void extinguish_fire()
     //check if light is detected and sonar is close enough to extinguish
     //if close enough check phototransistors values to check if centered
     // //if centered, turn fan on
-    // if (/*sensor values >= threshold && sonar < 10*/) {
-    //   //compare short distance phtotransistor values to check if fire is centered
-    //   int dif = /* sensor 1 - sensor 2*/ 
-    //   if (dif >= 50) {
-    //     //turn slightly clockwise
-    //   } else if (dif < -50) {
-    //     //turn slightly anticlockwise
-    //   } else {
-    //     //turn fan on
-    //   }
-    //   extinguish_fire_output_flag = 1;
-    // } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
-    //   extinguish_fire_command = FAN_OFF;
-    //   fires_extinguished++;
-    //   extinguish_fire_output_flag = 0;
-    // } else {
-    //   extinguish_fire_output_flag = 0;
-    // }
+    if (realign_to_fire_output_flag == 0 && sensor reading > thres && sonar < 10*/) {
+      //compare short distance phtotransistor values to check if fire is centered
+      //turn fan on
+      extinguish_fire_output_flag = 1;
+    } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
+      extinguish_fire_command = FAN_OFF;
+      fires_extinguished++;
+      extinguish_fire_output_flag = 0;
+    } else {
+      extinguish_fire_output_flag = 0;
+    }
 
 
 }
