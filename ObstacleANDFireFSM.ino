@@ -624,20 +624,20 @@ void detect_fire() {
 // ================================================================
 void extinguish_fire()
 {
-    //check if light is detected and sonar is close enough to extinguish
-    //if close enough check phototransistors values to check if centered
-    // //if centered, turn fan on
-    if (realign_to_fire_output_flag == 0 && sensor reading > thres && sonar < 10*/) {
-      //compare short distance phtotransistor values to check if fire is centered
-      //turn fan on
-      extinguish_fire_output_flag = 1;
-    } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
-      extinguish_fire_command = FAN_OFF;
-      fires_extinguished++;
-      extinguish_fire_output_flag = 0;
-    } else {
-      extinguish_fire_output_flag = 0;
-    }
+    // //check if light is detected and sonar is close enough to extinguish
+    // //if close enough check phototransistors values to check if centered
+    // // //if centered, turn fan on
+    // if (realign_to_fire_output_flag == 0 && sensor reading > thres && sonar < 10*/) {
+    //   //compare short distance phtotransistor values to check if fire is centered
+    //   //turn fan on
+    //   extinguish_fire_output_flag = 1;
+    // } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
+    //   extinguish_fire_command = FAN_OFF;
+    //   fires_extinguished++;
+    //   extinguish_fire_output_flag = 0;
+    // } else {
+    //   extinguish_fire_output_flag = 0;
+    // }
 }
 
 // ================================================================
@@ -803,6 +803,50 @@ void updateIMU() {
         }
     }
     (void)dt;
+}
+
+// ================================================================
+//  GYRO READING TO RETURN ANGLE (USE FOR DETECT FIRE)
+// ================================================================
+void tare_heading() {
+    headingOffset = currentHeading;
+    velX = 0.0f;
+    distX = 0.0f;
+    lastTimeMicros = micros();
+}
+
+// -----------------------------------------------
+float GYRO_reading() {
+  if (bno08x.wasReset()) {
+    bno08x.enableReport(SH2_GAME_ROTATION_VECTOR, 10000);
+    bno08x.enableReport(SH2_LINEAR_ACCELERATION, 10000);
+    lastTimeMicros = micros();
+  }
+
+  while (bno08x.getSensorEvent(&sensorValue)) {
+
+    if (sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR) {
+      float qw = sensorValue.un.gameRotationVector.real;
+      float qx = sensorValue.un.gameRotationVector.i;
+      float qy = sensorValue.un.gameRotationVector.j;
+      float qz = sensorValue.un.gameRotationVector.k;
+
+      float yaw = atan2(2.0f * (qw * qz + qx * qy),
+                        1.0f - 2.0f * (qy * qy + qz * qz));
+
+      currentHeading = yaw * 180.0f / M_PI;
+      while (currentHeading < 0.0f) currentHeading += 360.0f;
+      while (currentHeading >= 360.0f) currentHeading -= 360.0f;
+
+      headingError = currentHeading - headingOffset;
+      while (headingError < 0.0f) headingError += 360.0f;
+      while (headingError >= 360.0f) headingError -= 360.0f;
+
+      return headingError;
+    }
+  }
+  
+  return headingError;  // Return last known value instead of 0
 }
 
 // ================================================================
