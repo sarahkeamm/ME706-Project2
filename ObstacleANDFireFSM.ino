@@ -217,7 +217,7 @@ const float REALIGN_DEADBAND = 3.0f;
 //  SETUP
 // ================================================================
 void setup() {
-    Serial.begin(115200);
+    Serial1.begin(115200);
     SerialCom = &Serial1;
 
     pinMode(TRIG_PIN, OUTPUT);
@@ -299,17 +299,17 @@ void cruise() {
 }
 
 void realign_to_fire() {
-
-        if (sensorValues[3] > 10 || sensorValues[2] > 10) { //if light detected by long range
+        if (sensorValues[3] > 15 || sensorValues[2] > 15) { //if light detected by long range
         int dif = sensorValues[0] - sensorValues[1];
-        if (sensorValues[1] > 30 && sensorValues[0] > 30) {
+        SerialCom->println(dif);
+        if (sensorValues[1] > 40 && sensorValues[0] > 40) {
           if (abs(dif) <= 15) {
-            move_input = {0.0f, 0.0f, 0.0f}; //STOP
-            realign_to_fire_command = STOP;
+            // move_input = {0.0f, 0.0f, 0.0f}; //STOP
+            // realign_to_fire_command = STOP;
             realign_to_fire_output_flag = 0;
-            SerialCom->print(sensorValues[0]);
-            SerialCom->println(",");
-            SerialCom->println(sensorValues[1]);
+            // SerialCom->print(sensorValues[0]);
+            // SerialCom->print(",");
+            // SerialCom->println(sensorValues[1]);
           } else if (dif > 15) {
             move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
@@ -322,7 +322,7 @@ void realign_to_fire() {
             rotate = 1.0;
           } 
         }
-        } else if (sensorValues[2] <= 10 || sensorValues[3] <= 10) { //else if no light detected
+        } else if (sensorValues[2] <= 15 || sensorValues[3] <= 15) { //else if no light detected
         if (last_dir == LEFT) {
           rotate =  -1;
           last_dir = -1;
@@ -677,6 +677,7 @@ void serial_read_conditions() {
 //  ROBOT MOVE
 // ================================================================
 void robotMove() {
+
     switch (motor_input) {
         case MOVE:
             mecanumDrive(move_input.x, move_input.y, move_input.rotation);
