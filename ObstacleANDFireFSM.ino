@@ -14,6 +14,11 @@ const byte right_front = 51;
 bool sonar_fwd_triggered = false;
 
 // ----------------------------------------------------------------
+//  FAN
+// ----------------------------------------------------------------
+const int FAN_PIN = 9;
+
+// ----------------------------------------------------------------
 //  SONAR
 // ----------------------------------------------------------------
 const int TRIG_PIN  = 48;
@@ -220,6 +225,9 @@ void setup() {
     Serial1.begin(115200);
     SerialCom = &Serial1;
 
+    //fan
+    pinMode(FAN_PIN, OUTPUT);
+
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
 
@@ -275,7 +283,7 @@ STATE running(){
     cruise();
     avoid_obstacle();
     realign_to_fire();
-    // extinguish_fire();
+    extinguish_fire();
     detect_fire();
 
     arbitrate();
@@ -300,47 +308,52 @@ void cruise() {
 }
 
 void realign_to_fire() {
-        if ((sensorValues[3] > 80 || sensorValues[2] > 80) && scan_360 == 1) { //if light detected by long range
-        int dif = sensorValues[0] - sensorValues[1];
-        // SerialCom->println(dif);
+        if (fires_extinguished >= 2) {
+            machine_state = stopped;
+        } else {
+            if ((sensorValues[3] > 80 && sensorValues[2] > 80) && scan_360 == 1) { //if light detected by long range
+            int dif = sensorValues[0] - sensorValues[1];
+            // SerialCom->println(dif);
 
-        int buffer;
-        if (sensorValues[1] > 30 && sensorValues[0] > 30) {
-            if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                buffer = 10;
-            } else {
-                buffer = 50;
+            int buffer;
+            if (sensorValues[1] > 30 && sensorValues[0] > 30) {
+                if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+                    buffer = 10;
+                } else {
+                    buffer = 50;
+                }
+
+            if (abs(dif) <= buffer) {
+                realign_to_fire_output_flag = 0;
+                SerialCom->print(sensorValues[0]);
+                SerialCom->print(",");
+                SerialCom->println(sensorValues[1]);
+            } else if (dif > buffer) {
+                move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+                realign_to_fire_command = MOVE;
+                realign_to_fire_output_flag = 1;
+                rotate = -1.0;
+            } else if (dif < (-1 * buffer)) {
+                move_input = {0.0f, 0.0f, 0.5f}; //ANTI
+                realign_to_fire_command = MOVE;
+                realign_to_fire_output_flag = 1;
+                rotate = 1.0;
+            } 
             }
-
-          if (abs(dif) <= buffer) {
-            realign_to_fire_output_flag = 0;
-            SerialCom->print(sensorValues[0]);
-            SerialCom->print(",");
-            SerialCom->println(sensorValues[1]);
-          } else if (dif > buffer) {
-            move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+            } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80) && scan_360 == 1) { //else if no light detected
+            if (last_dir == LEFT) {
+            rotate =  -1;
+            last_dir = -1;
+            } else if (last_dir == RIGHT) {
+            rotate = 1;
+            last_dir = -1;
+            }
+            move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
-            rotate = -1.0;
-          } else if (dif < (-1 * buffer)) {
-            move_input = {0.0f, 0.0f, 0.5f}; //ANTI
-            realign_to_fire_command = MOVE;
-            realign_to_fire_output_flag = 1;
-            rotate = 1.0;
-          } 
+            }
         }
-        } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80) && scan_360 == 1) { //else if no light detected
-        if (last_dir == LEFT) {
-          rotate =  -1;
-          last_dir = -1;
-        } else if (last_dir == RIGHT) {
-          rotate = 1;
-          last_dir = -1;
-        }
-          move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
-          realign_to_fire_command = MOVE;
-          realign_to_fire_output_flag = 1;
-        }
+        
 }
 
 // ================================================================
@@ -600,7 +613,7 @@ void detect_fire() {
         } else if (spin_angle < 345.0) {
             // SerialCom->println("spinning");
             int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif <= 50) {
+            if (sensorValues[3] > 80 && sensorValues[2] > 80 && dif <= 50) {
               SerialCom->print(sensorValues[3]);
               SerialCom->print(",");
               SerialCom->println(sensorValues[2]);
@@ -685,6 +698,21 @@ void extinguish_fire()
     // } else {
     //   extinguish_fire_output_flag = 0;
     // }
+
+    if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700 ) {
+        extinuish_fire_output_flag = 1;
+        extingush_fire_command = MOVE;
+        move_input = {0.0f, 0.5f, 0.0f};
+    } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
+        extinuish_fire_output_flag = 1;
+        extingush_fire_command = FAN_ON;
+    } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON){
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command = FAN_OFF;
+        fires_extinguished++;
+    } else {
+        extinguish_fire_output_flag = 0;
+    }
 }
 
 // ================================================================
@@ -733,10 +761,13 @@ void robotMove() {
             stopRobot();
             break;
         case FAN_ON:
+            stopRobot();
             // turn fan on
+            digitalWrite(FAN_PIN, HIGH); // Turn fan ON
             break;
         case FAN_OFF:
             // turn fan off
+            digitalWrite(fanPin, LOW); // Turn fan ON
             break;
     }
 }
