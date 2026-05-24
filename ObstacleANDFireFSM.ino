@@ -300,9 +300,9 @@ void cruise() {
 }
 
 void realign_to_fire() {
-        if ((sensorValues[3] > 15 || sensorValues[2] > 15) && scan_360 == 1) { //if light detected by long range
+        if ((sensorValues[3] > 80 || sensorValues[2] > 80) && scan_360 == 1) { //if light detected by long range
         int dif = sensorValues[0] - sensorValues[1];
-        SerialCom->println(dif);
+        // SerialCom->println(dif);
 
         int buffer;
         if (sensorValues[1] > 30 && sensorValues[0] > 30) {
@@ -313,12 +313,10 @@ void realign_to_fire() {
             }
 
           if (abs(dif) <= buffer) {
-            // move_input = {0.0f, 0.0f, 0.0f}; //STOP
-            // realign_to_fire_command = STOP;
             realign_to_fire_output_flag = 0;
-            // SerialCom->print(sensorValues[0]);
-            // SerialCom->print(",");
-            // SerialCom->println(sensorValues[1]);
+            SerialCom->print(sensorValues[0]);
+            SerialCom->print(",");
+            SerialCom->println(sensorValues[1]);
           } else if (dif > buffer) {
             move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
             realign_to_fire_command = MOVE;
@@ -331,7 +329,7 @@ void realign_to_fire() {
             rotate = 1.0;
           } 
         }
-        } else if ((sensorValues[2] <= 15 || sensorValues[3] <= 15) && scan_360 == 1) { //else if no light detected
+        } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80) && scan_360 == 1) { //else if no light detected
         if (last_dir == LEFT) {
           rotate =  -1;
           last_dir = -1;
@@ -613,7 +611,7 @@ void detect_fire() {
               spin_angle_cummulative += spin_angle;
               val_counter++;
             } 
-            else if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif > 80) {
+            else if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif > 50) {
                 if (spin_angle_average != spin_angle_cummulative / val_counter) {
                   spin_angle_average = spin_angle_cummulative / val_counter;
                   sensor_value_average = cummulative_sensor_value / val_counter;
