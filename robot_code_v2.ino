@@ -273,8 +273,8 @@ STATE running() {
     serial_read_conditions();
     cruise();
     avoid_obstacle();
-   // realign_to_fire();
-   // extinguish_fire();
+  //  realign_to_fire();
+  //  extinguish_fire();
  //   detect_fire();
 
     arbitrate();
@@ -446,6 +446,18 @@ void avoid_obstacle() {
         Serial.println(F("[AVOID] RL closed — flipping to RIGHT"));
     }
 
+    // ── BACK UP if the strafe-side front IR is dangerously close ──
+    // Strafing right into a wall < 5 cm on the right, or strafing left
+    // into a wall < 5 cm on the left — back up until > 5 cm before strafing.
+    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 10.0f)
+                           || (last_strafe_dir < 0 && front_left_IR  < 10.0f);
+
+    if (strafe_into_danger) {
+        move_input = {0.0f, -0.5f, 0.0f};
+        Serial.println(F("[AVOID] Danger on strafe side — backing up"));
+        return;
+    }
+
     move_input         = {last_strafe_dir, 0.0f, 0.0f};
     currently_strafing = true;
     Serial.print(F("[AVOID] Strafing: "));
@@ -539,20 +551,20 @@ void extinguish_fire() {
 //  ARBITRATE
 // ================================================================
 void arbitrate() {
-    if (cruise_output_flag == 1){
-        motor_input = cruise_command;}
-    // if (realign_to_fire_output_flag == 1)
-    //     motor_input = realign_to_fire_command;
-    if (avoid_obstacle_output_flag == 1){
-        motor_input = avoid_obstacle_command;}
-    // if (extinguish_fire_output_flag == 1)
-    //     motor_input = extinguish_fire_command;
-    // if (detect_fire_output_flag == 1)
-    //     motor_input = detect_fire_command;
+    if (cruise_output_flag == 1)
+        motor_input = cruise_command;
+    if (realign_to_fire_output_flag == 1)
+        motor_input = realign_to_fire_command;
+    if (avoid_obstacle_output_flag == 1)
+        motor_input = avoid_obstacle_command;
+    if (extinguish_fire_output_flag == 1)
+        motor_input = extinguish_fire_command;
+    if (detect_fire_output_flag == 1)
+        motor_input = detect_fire_command;
 
-    // if (fires_extinguished >= 2) {
-    //     motor_input = FINISH;
-    // }
+    if (fires_extinguished >= 2) {
+        motor_input = FINISH;
+    }
 
     robotMove();
 }
