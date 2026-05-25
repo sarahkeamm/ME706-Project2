@@ -16,7 +16,7 @@ bool sonar_fwd_triggered = false;
 // ----------------------------------------------------------------
 //  FAN
 // ----------------------------------------------------------------
-const int FAN_PIN = 9;
+const int FAN_PIN = 45;
 
 // ----------------------------------------------------------------
 //  SONAR
@@ -37,7 +37,8 @@ enum MOTION {
     MOVE,
     STOP,
     FAN_ON,
-    FAN_OFF
+    FAN_OFF, 
+    FINISH
 };
 
 struct DriveCommand {
@@ -74,15 +75,12 @@ float distX = 0.0f;
 unsigned long lastTimeMicros = 0;
 int fires_extinguished = 0;
 bool scan_360 = 0;
-int scan_number = 0;
 float spin_angle = 0;
-int detect_angles[2] = {0, 0};
-int detect_distances[2] = {0, 0};
-int cummulative_sensor_value = 0;
-float spin_angle_cummulative = 0.0f;
-float spin_angle_average = 0;
-int sensor_value_average = 0;
-int val_counter = 0;
+float max_spin_angle = 0;
+int max_sensor_value = 0;
+int min_sensor_value = 1023;
+
+
 
 // ----------------------------------------------------------------
 //  REALIGN VARIABLES AND CONSTANTS
@@ -292,8 +290,13 @@ STATE running(){
 } // STATE REPEATLY
 
 STATE stopped() {
-    disable_motors();
-    stopRobot();
+    motor_input = FINISH;
+    detect_fire_output_flag = 0;
+    cruise_output_flag = 0;
+    avoid_obstacle_output_flag = 0;
+    extinguish_fire_output_flag = 0;
+    realign_to_fire_output_flag = 0;
+    robotMove();
 }
 
 // ================================================================
@@ -309,9 +312,10 @@ void cruise() {
 
 void realign_to_fire() {
         if (fires_extinguished >= 2) {
-            machine_state = stopped;
+            stopped();
+            break;
         } else {
-            if ((sensorValues[3] > 80 && sensorValues[2] > 80) && scan_360 == 1) { //if light detected by long range
+            if ((sensorValues[3] > 80 && sensorValues[2] > 80)) { //if light detected by long range
             int dif = sensorValues[0] - sensorValues[1];
             // SerialCom->println(dif);
 
@@ -340,7 +344,7 @@ void realign_to_fire() {
                 rotate = 1.0;
             } 
             }
-            } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80) && scan_360 == 1) { //else if no light detected
+            } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80)) { //else if no light detected
             if (last_dir == LEFT) {
             rotate =  -1;
             last_dir = -1;
@@ -601,103 +605,81 @@ void avoid_obstacle() {
 //  DETECT FIRE
 // ================================================================
 void detect_fire() {
-          //initial scan for fire
-    if (scan_360 == 0 && fires_extinguished == 0) {
-        //make sure enough space for robot to turn 360 degrees
+    //initial scan for fire
+    if (scan_360) {
         if (spin_angle >= 350.0 && spin_angle < 358.0) {
-            SerialCom->println("done");
             scan_360 = 1;
-            // move_input = {0.0f, 0.0f, 0.0f}; // STOP
-            // detect_fire_command = STOP;
-            detect_fire_output_flag = 0;
+            detect_fire_output_flag = 1;
         } else if (spin_angle < 345.0) {
-            // SerialCom->println("spinning");
-            int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 80 && sensorValues[2] > 80 && dif <= 50) {
-              SerialCom->print(sensorValues[3]);
-              SerialCom->print(",");
-              SerialCom->println(sensorValues[2]);
-              // detect_angles[scan_number] = spin_angle;
-              // detect_distances[scan_number] = (sensorValues[3] + sensorValues[2]) /2; // or some function of sensorValues[2] and sensorValues[3]
-              // scan_number++;
-              cummulative_sensor_value += (sensorValues[3] + sensorValues[2]) / 2;
-              spin_angle_cummulative += spin_angle;
-              val_counter++;
-            } 
-            else if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif > 50) {
-                if (spin_angle_average != spin_angle_cummulative / val_counter) {
-                  spin_angle_average = spin_angle_cummulative / val_counter;
-                  sensor_value_average = cummulative_sensor_value / val_counter;
-                  // SerialCom->println(sensor_value_average);
-                  // SerialCom->println(spin_angle_average);
-                  detect_angles[scan_number] = spin_angle_average;
-                  detect_distances[scan_number] = sensor_value_average; // or some function of sensorValues[2] and sensorValues[3]
-                  cummulative_sensor_value = 0;
-                  spin_angle_cummulative = 0;
-                  val_counter = 0;
-                  scan_number++;
+            if (sensorValues[3] > 80 && sensorValues[2] > 80) {
+                int dif = sensorValues[0] - sensorValues[1];
+
+                int buffer;
+                if (sensorValues[1] > 30 && sensorValues[0] > 30) {
+                    if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+                        buffer = 10;
+                    } else {
+                        buffer = 50;
+                    }
+
+                    if (abs(dif) <= buffer) {
+                        if (max_sensor_value < sensorValues[0]) {
+                            max_sensor_value = sensorValues[0];
+                            max_spin_angle = spin_angle;
+                        }
+
+                        if (min_sensor_value > sensorValues[0]) {
+                            min_sensor_value = sensorValues[0];
+                        }
+                    }
                 }
-            }
+            } 
             move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
             detect_fire_command = MOVE;
             detect_fire_output_flag = 1;
         }
-    } 
-    // else if (scan_360 == 1 && fires_extinguished == 0) {
-    //     int min_distance = min(detect_distances[0], detect_distances[1]);
-    //     int min_angle = 0;
-    //     if (min_distance == detect_distances[0]) {
-    //       min_angle = detect_angles[0];
-    //     } else {
-    //       min_angle = detect_angles[1];
-    //     }
-    //     if (spin_angle > min_angle - 5 && spin_angle < min_angle + 5) {
-    //         move_input = {0.0f, 0.0f, 0.0f}; // STOP
-    //         detect_fire_command = STOP;
-    //         detect_fire_output_flag = 0;
-    //     } else {
-    //         move_input = {0.0f, 0.0f, 0.8f}; // CLOCKWISE
-    //         detect_fire_command = MOVE;
-    //         detect_fire_output_flag = 1;
-    //     }
-    // }
-    
-    // //rescanning after extinguishing first fire
-    // if (scan_360 == 1 && fires_extinguished == 1) {
-    //   int dif = abs(sensorValues[3] - sensorValues[2]);
-        // if (sensorValues[3] > 100 && sensorValues[2] > 100 && (dif <= 100)) {
-        //     SerialCom->println(sensorValues[3]);
-        //     SerialCom->println(sensorValues[2]);
-        //     move_input = {0.0f, 0.0f, 0.0f}; // STOP
-        //     detect_fire_command = STOP;
-        //     detect_fire_output_flag = 0;
-        // } else {
-        //     move_input = {0.0f, 0.0f, 0.8f}; //CLOCKWISE
-        //     detect_fire_command = MOVE;
-        //     detect_fire_output_flag = 1;
-        // }
-    // } 
+    } else if (scan_360 == 1) {
+        SerialCom->print(max_spin_angle);
+        SerialCom->print(",");
+        SerialCom->println(max_sensor_value);
+        if (sensorValues[3] > 80 && sensorValues[2] > 80) {
+                int dif = sensorValues[0] - sensorValues[1];
+
+                int buffer;
+                if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value) {
+                    if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+                        buffer = 10;
+                    } else {
+                        buffer = 50;
+                    }
+
+                    if (abs(dif) <= buffer) {
+                        detect_fire_output_flag = 0;
+                        scan_360 = -1;
+                    }
+                }
+        } else {
+            if (max_spin_angle < 180) {
+                move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+                detect_fire_command = MOVE;
+                detect_fire_output_flag = 1;
+            } else {
+                move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
+                detect_fire_command = MOVE;
+                detect_fire_output_flag = 1;
+            }
+        }
+    } else {
+        detect_fire_output_flag = 0;
+    }
 }
+
 
 // ================================================================
 //  EXTINGUISH FIRE
 // ================================================================
 void extinguish_fire()
 {
-    // //check if light is detected and sonar is close enough to extinguish
-    // //if close enough check phototransistors values to check if centered
-    // // //if centered, turn fan on
-    // if (realign_to_fire_output_flag == 0 && sensor reading > thres && sonar < 10*/) {
-    //   //compare short distance phtotransistor values to check if fire is centered
-    //   //turn fan on
-    //   extinguish_fire_output_flag = 1;
-    // } else if (extinguish_fire_command == FAN_ON) { //check last command to get out of extinguishing state and increment variable
-    //   extinguish_fire_command = FAN_OFF;
-    //   fires_extinguished++;
-    //   extinguish_fire_output_flag = 0;
-    // } else {
-    //   extinguish_fire_output_flag = 0;
-    // }
 
     if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700 ) {
         extinuish_fire_output_flag = 1;
@@ -767,7 +749,13 @@ void robotMove() {
             break;
         case FAN_OFF:
             // turn fan off
-            digitalWrite(fanPin, LOW); // Turn fan ON
+            digitalWrite(FAN_PIN, LOW); // Turn fan OFF
+            break;
+        case FINISH:
+            stopRobot();
+            disable_motors();
+            SerialCom->println("TASK COMPLETE");
+            while (1) delay(10);
             break;
     }
 }
