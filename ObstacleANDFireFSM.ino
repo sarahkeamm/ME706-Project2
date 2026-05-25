@@ -280,7 +280,7 @@ STATE running(){
     serial_read_conditions(); //read all sensors
     cruise();
     // avoid_obstacle();
-    // realign_to_fire();
+    realign_to_fire();
     extinguish_fire();
     detect_fire();
 
@@ -328,9 +328,6 @@ void realign_to_fire() {
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
-                SerialCom->print(sensorValues[0]);
-                SerialCom->print(",");
-                SerialCom->println(sensorValues[1]);
             } else if (dif > buffer) {
                 move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
                 realign_to_fire_command = MOVE;
@@ -604,16 +601,15 @@ void avoid_obstacle() {
 //  DETECT FIRE
 // ================================================================
 void detect_fire() {
-    //initial scan for fire
-    if (scan_360 == -1) {
-        detect_fire_output_flag = 0;
-        return;
-    }
 
+    if (scan_360 == -1) {
+        detect_fire_command = STOP;
+        detect_fire_output_flag = 0;
+    }
+    //initial scan for fire
     if (scan_360 == 0) {
         if (spin_angle >= 350.0 && spin_angle < 358.0) {
             scan_360 = 1;
-            detect_fire_output_flag = 1;
         } else if (spin_angle < 345.0) {
             if (sensorValues[3] > 80 && sensorValues[2] > 80) {
                 int dif = sensorValues[0] - sensorValues[1];
@@ -638,38 +634,45 @@ void detect_fire() {
                     }
                 }
             } 
-            move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
-            detect_fire_command = MOVE;
-            detect_fire_output_flag = 1;
         }
+
+        detect_fire_output_flag = 1;
+        move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+        detect_fire_command = MOVE;
+
     } else if (scan_360 == 1) {
+        detect_fire_output_flag = 1;
         if (sensorValues[3] > 80 && sensorValues[2] > 80) {
                 int dif = sensorValues[0] - sensorValues[1];
                 int buffer;
 
-                detect_fire_output_flag = 1;
-
-                if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value) {
-                    if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+                if (sensorValues[1] < 300 || sensorValues[0] < 300) {
                         buffer = 10;
                     } else {
                         buffer = 50;
-                    }
-
-                    if (abs(dif) <= buffer) {
-                        scan_360 = -1;
-                        detect_fire_output_flag = 0;
-                    }
                 }
+
+                if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value && abs(dif) <= buffer) {
+                    scan_360 = -1;
+                    detect_fire_output_flag = 0;
+                    SerialCom->println("detect = 0");
+                } else {
+                    if (max_spin_angle < 180) {
+                        move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
+                        detect_fire_command = MOVE;
+                    } else {
+                        move_input = {0.0f, 0.0f, -0.5f}; // CLOCKWISE
+                        detect_fire_command = MOVE;
+                }
+            }
+
         } else {
             if (max_spin_angle < 180) {
                 move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
                 detect_fire_command = MOVE;
-                detect_fire_output_flag = 1;
             } else {
                 move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
                 detect_fire_command = MOVE;
-                detect_fire_output_flag = 1;
             }
         }
     } 
@@ -751,7 +754,6 @@ void robotMove() {
         case FAN_OFF:
             // turn fan off
             digitalWrite(FAN_PIN, LOW); // Turn fan OFF
-            delay(1000);
             break;
         case FINISH:
             stopRobot();
