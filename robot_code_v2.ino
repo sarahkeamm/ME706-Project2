@@ -5,38 +5,52 @@
 unsigned long strafe_start_ms   = 0;
 const unsigned long MIN_STRAFE_MS = 800;
 
+// define the control pin of each motor
 const byte left_front = 46;
-const byte left_rear = 47;
+const byte left_rear  = 47;
 const byte right_rear = 50;
 const byte right_front = 51;
 
 bool sonar_fwd_triggered = false;
 
+// ----------------------------------------------------------------
+//  FAN
+// ----------------------------------------------------------------
+const int FAN_PIN = 45;
+
+// ----------------------------------------------------------------
+//  SONAR
+// ----------------------------------------------------------------
 const int TRIG_PIN  = 48;
 const int ECHO_PIN  = 49;
-const unsigned int MAX_DIST = 23200;
+const unsigned int MAX_DIST = 23200;  // ~400 cm timeout
 
+// three machine states
 enum STATE {
     INITIALISING,
     RUNNING,
     STOPPED
 };
 
+// define motion states for FSM
 enum MOTION {
     MOVE,
     STOP,
     FAN_ON,
-    FAN_OFF
+    FAN_OFF,
+    FINISH
 };
 
 struct DriveCommand {
-    float x;
-    float y;
-    float rotation;
+    float x;         // strafe: +1 = right, -1 = left
+    float y;         // forward: +1 = forward
+    float rotation;  // spin: +1 = CW, -1 = CCW
 };
 
+// shared move_input — written by whichever behaviour wins arbitration
 DriveCommand move_input;
 
+// per-behaviour MOTION commands and flags
 MOTION detect_fire_command;
 MOTION cruise_command;
 MOTION avoid_obstacle_command;
@@ -44,34 +58,35 @@ MOTION extinguish_fire_command;
 MOTION realign_to_fire_command;
 MOTION motor_input;
 
-int detect_fire_output_flag   = 0;
-int cruise_output_flag        = 0;
+int detect_fire_output_flag    = 0;
+int cruise_output_flag         = 0;
 int avoid_obstacle_output_flag = 0;
 int extinguish_fire_output_flag = 0;
 int realign_to_fire_output_flag = 0;
 
-float headingOffset = 0.0f;
+// ----------------------------------------------------------------
+//  FIRE DETECTION VARIABLES AND CONSTANTS
+// ----------------------------------------------------------------
+float headingOffset  = 0.0f;
 float currentHeading = 0.0f;
-float headingError = 0.0f;
-float velX = 0.0f;
-float distX = 0.0f;
+float headingError   = 0.0f;
+float velX           = 0.0f;
+float distX          = 0.0f;
 unsigned long lastTimeMicros = 0;
-int fires_extinguished = 0;
-bool scan_360 = 0;
-int scan_number = 0;
-float spin_angle = 0;
-int detect_angles[2] = {0, 0};
-int detect_distances[2] = {0, 0};
-int cummulative_sensor_value = 0;
-float spin_angle_cummulative = 0.0f;
-float spin_angle_average = 0;
-int sensor_value_average = 0;
-int val_counter = 0;
+int   fires_extinguished = 0;
+int   scan_360       = 0;   // 0 = scanning, 1 = scan done, -1 = aligned
+float spin_angle     = 0;
+float max_spin_angle = 0;
+int   max_sensor_value = 0;
+int   min_sensor_value = 1023;
 
-int rotate = 0;
-int last_dir = 0;
+// ----------------------------------------------------------------
+//  REALIGN VARIABLES AND CONSTANTS
+// ----------------------------------------------------------------
+int rotate   = 0;
+int last_dir = -1;
 #define RIGHT 1
-#define LEFT 0
+#define LEFT  0
 
 int ir_detect;
 int ultrasonic_distance;
@@ -79,9 +94,13 @@ int bumper_left;
 int bumper_right;
 int bumper_back;
 
+// ----------------------------------------------------------------
+//  PHOTO TRANSISTORS
+// ----------------------------------------------------------------
 int sensorValues[4];
 int Photopins[] = {A8, A9, A10, A11};
 
+// create servo objects for each motor
 Servo lf_motor;
 Servo lr_motor;
 Servo rr_motor;
@@ -91,23 +110,32 @@ int speed_val = 120;
 const int baseSpeed = 150;
 int speed_change;
 
-float avoid_strafe_dir  = 0.0f;
-bool  avoid_aligned     = false;
+// ----------------------------------------------------------------
+//  AVOID OBSTACLE VARIABLES AND CONSTANTS
+// ----------------------------------------------------------------
+float avoid_strafe_dir   = 0.0f;
+bool  avoid_aligned      = false;
 bool  currently_strafing = false;
-float last_strafe_dir   = 0.0f;
+float last_strafe_dir    = 0.0f;
 
 const float IR_FRONT_DANGER_CM  = 7.0f;
 const float IR_FRONT_WARNING_CM = 15.0f;
 const float IR_REAR_DANGER_CM   = 15.0f;
 const float SONAR_FRONT_OBSTACLE = 7.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
-const float SIDE_DANGER = 10.0f;
+const float SIDE_DANGER          = 10.0f;
 
+// ----------------------------------------------------------------
+//  IR SENSOR PINS
+// ----------------------------------------------------------------
 const int IR_FRONT_LEFT  = A6;
 const int IR_FRONT_RIGHT = A7;
 const int IR_BACK_LEFT   = A4;
 const int IR_BACK_RIGHT  = A5;
 
+// ----------------------------------------------------------------
+//  SONAR SERVO
+// ----------------------------------------------------------------
 Servo sensor_servo;
 const int SERVO_PIN       = 10;
 const int SERVO_LEFT      = 165;
@@ -115,14 +143,21 @@ const int SERVO_CENTRE    = 90;
 const int SERVO_RIGHT     = 15;
 const int SWEEP_SETTLE_MS = 250;
 
+// Calibrated distances (cm)
 float front_left_IR  = 0;
 float front_right_IR = 0;
 float rear_left_IR   = 0;
 float rear_right_IR  = 0;
 float sonar          = 999;
 
+// ----------------------------------------------------------------
+//  FIRE / HEADING
+// ----------------------------------------------------------------
 float FIRE_BEARING_DEG = 0.0f;
 
+// ----------------------------------------------------------------
+//  IMU
+// ----------------------------------------------------------------
 #define BNO08X_RESET -1
 Adafruit_BNO08x   bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensorValue;
@@ -135,6 +170,9 @@ bool  motors_active = false;
 float heading_locked = 0.0f;
 int   fire_count     = 0;
 
+// ================================================================
+//  FORWARD DECLARATIONS
+// ================================================================
 float wrapAngle(float a);
 float getHeading();
 void  updateIMU();
@@ -146,10 +184,14 @@ float read_sonarsensor();
 void  read_IR_sensors();
 void  spin_to_heading(float target_deg);
 void  robotMove();
+void  serial_read_conditions();
+float GYRO_reading();
 
+// ----------------------------------------------------------------
+//  PID
+// ----------------------------------------------------------------
 struct PID {
     float kp, ki, kd, integral, prev_error;
-
     float compute(float target, float current) {
         float error = wrapAngle(target - current);
         integral    = constrain(integral + error, -200.0f, 200.0f);
@@ -163,6 +205,9 @@ struct PID {
 PID straightPID = { 2.0f, 0.01f, 0.2f, 0, 0 };
 PID turnPID     = { 5.0f, 0.01f, 0.3f, 0, 0 };
 
+// ----------------------------------------------------------------
+//  DRIVE SPEEDS
+// ----------------------------------------------------------------
 const float DRIVE_SPEED      = 0.8f;
 const float STRAFE_SPEED     = 0.7f;
 const float TURN_SPEED       = 0.5f;
@@ -173,6 +218,9 @@ const float REALIGN_DEADBAND = 3.0f;
 // ================================================================
 void setup() {
     Serial.begin(115200);
+
+    pinMode(FAN_PIN, OUTPUT);
+    digitalWrite(FAN_PIN, LOW);
 
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
@@ -191,6 +239,7 @@ void setup() {
         pinMode(Photopins[i], INPUT);
     }
 
+    motor_input = STOP;   // safe default before first arbitrate
     last_imu_us = micros();
 }
 
@@ -220,18 +269,27 @@ STATE initialising() {
     return RUNNING;
 }
 
-STATE running(){
+STATE running() {
     serial_read_conditions();
     cruise();
     avoid_obstacle();
+   // realign_to_fire();
+   // extinguish_fire();
+ //   detect_fire();
 
     arbitrate();
     return RUNNING;
 }
 
 STATE stopped() {
-    disable_motors();
-    stopRobot();
+    motor_input = FINISH;
+    detect_fire_output_flag     = 0;
+    cruise_output_flag          = 0;
+    avoid_obstacle_output_flag  = 0;
+    extinguish_fire_output_flag = 0;
+    realign_to_fire_output_flag = 0;
+    robotMove();
+    return STOPPED;
 }
 
 // ================================================================
@@ -239,22 +297,26 @@ STATE stopped() {
 // ================================================================
 void cruise() {
     float correction = 0;
-    cruise_command = MOVE;
-    move_input     = {0.0f, DRIVE_SPEED, correction};
+    cruise_command     = MOVE;
+    move_input         = {0.0f, DRIVE_SPEED, correction};
     cruise_output_flag = 1;
 }
 
+// ================================================================
+//  REALIGN TO FIRE
+// ================================================================
 void realign_to_fire() {
-    if ((sensorValues[3] > 80 || sensorValues[2] > 80) && scan_360 == 1) {
-        int dif = sensorValues[0] - sensorValues[1];
+    if (fires_extinguished >= 2) {
+        // hand off to stopped state via the main FSM
+        return;
+    }
 
-        int buffer;
+    if (sensorValues[3] > 80 && sensorValues[2] > 80) {
+        int dif    = sensorValues[0] - sensorValues[1];
+        int buffer = 0;
+
         if (sensorValues[1] > 30 && sensorValues[0] > 30) {
-            if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                buffer = 10;
-            } else {
-                buffer = 50;
-            }
+            buffer = (sensorValues[1] < 300 || sensorValues[0] < 300) ? 10 : 50;
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
@@ -262,90 +324,110 @@ void realign_to_fire() {
                 Serial.print(",");
                 Serial.println(sensorValues[1]);
             } else if (dif > buffer) {
-                move_input = {0.0f, 0.0f, -0.5f};
-                realign_to_fire_command = MOVE;
+                move_input = {0.0f, 0.0f, -0.5f};  // CW
+                realign_to_fire_command     = MOVE;
                 realign_to_fire_output_flag = 1;
-                rotate = -1.0;
-            } else if (dif < (-1 * buffer)) {
-                move_input = {0.0f, 0.0f, 0.5f};
-                realign_to_fire_command = MOVE;
+                rotate  = -1;
+                last_dir = RIGHT;
+            } else {
+                move_input = {0.0f, 0.0f, 0.5f};   // CCW
+                realign_to_fire_command     = MOVE;
                 realign_to_fire_output_flag = 1;
-                rotate = 1.0;
+                rotate  = 1;
+                last_dir = LEFT;
             }
         }
-    } else if ((sensorValues[2] <= 80 || sensorValues[3] <= 80) && scan_360 == 1) {
+    } else {
+        // no light — spin in the direction we last saw fire
         if (last_dir == LEFT) {
-            rotate  = -1;
-            last_dir = -1;
+            rotate = -1;
         } else if (last_dir == RIGHT) {
             rotate = 1;
-            last_dir = -1;
         }
         move_input = {0.0f, 0.0f, (1.0f * rotate)};
-        realign_to_fire_command = MOVE;
+        realign_to_fire_command     = MOVE;
         realign_to_fire_output_flag = 1;
     }
 }
 
 // ================================================================
 //  AVOID OBSTACLE
-//  Sonar always points forward (servo fixed at CENTRE).
-//  All 3 front sensors (FL IR, FR IR, sonar) must be clear
-//  before obstacle avoidance disengages.
+//  Sonar always forward. All 3 front sensors must clear before
+//  disengaging. Direction locked on first trigger.
 //
-//  Direction is LOCKED on first detection and held until the
-//  front is fully clear. The only reason to flip direction mid-
-//  strafe is if a rear sensor closes off the committed side —
-//  never because a front sensor happens to clear first.
+//  When both front IRs are blocked, rotate to equalise them
+//  (robot squares up to the wall) before locking a strafe direction.
+//  This ensures the strafe runs parallel to the wall rather than
+//  angling into it.
 // ================================================================
+
+// How close the two IR readings need to be (cm) to count as square
+const float WALL_ALIGN_TOLERANCE_CM = 2.0f;
+bool wall_aligning = false;   // true while squaring up to wall
+
 void avoid_obstacle() {
     bool fl_blocked    = (front_left_IR  < IR_FRONT_WARNING_CM);
     bool fr_blocked    = (front_right_IR < IR_FRONT_WARNING_CM);
     bool sonar_blocked = (sonar          < SONAR_FRONT_OBSTACLE);
-    bool rl_blocked    = false;
-    bool rr_blocked    = false;
+    bool rl_blocked    = (rear_left_IR   < ROBOT_CLEARANCE);
+    bool rr_blocked    = (rear_right_IR  < ROBOT_CLEARANCE);
 
-    if (fl_blocked && !fr_blocked) {
-        rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
-        rr_blocked = rear_right_IR < SIDE_DANGER; 
-    }
-    if (!fl_blocked && fr_blocked){
-        rl_blocked = rear_left_IR < SIDE_DANGER;
-        rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
-    }
-    if (fl_blocked && fr_blocked){
-        rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
-        rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
-    }
-
-    // ── ALL THREE front sensors clear → stop avoiding ──────────
+    // All three front clear → disengage
     if (!fl_blocked && !fr_blocked && !sonar_blocked) {
         avoid_obstacle_output_flag = 0;
         avoid_strafe_dir           = 0.0f;
         avoid_aligned              = false;
         currently_strafing         = false;
         last_strafe_dir            = 0.0f;
+        wall_aligning              = false;
         sonar_fwd_triggered        = false;
         Serial.println(F("[AVOID] All clear"));
         return;
     }
 
-    // ── OBSTACLE AVOIDANCE NEEDED ──────────────────────────────
     avoid_obstacle_output_flag = 1;
     avoid_obstacle_command     = MOVE;
 
-    // ── If no direction is locked yet, choose one now ───────────
+    // ── WALL ALIGN PHASE ────────────────────────────────────────
+    // Enter alignment if both IRs are blocked and no strafe is locked yet.
+    // Stay in it until the two readings are within tolerance.
+    if (fl_blocked && fr_blocked && last_strafe_dir == 0.0f) {
+        wall_aligning = true;
+    }
+
+    if (wall_aligning) {
+        float diff = front_left_IR - front_right_IR;
+
+        if (fabs(diff) <= WALL_ALIGN_TOLERANCE_CM) {
+            // Readings are equal — robot is square to the wall
+            wall_aligning = false;
+            Serial.println(F("[AVOID] Wall aligned"));
+            // Fall through immediately to lock strafe direction below
+        } else {
+            // Rotate toward whichever side is further away so both
+            // readings converge:
+            //   FL > FR  →  robot's left corner is further, rotate CW (-)
+            //   FL < FR  →  robot's right corner is further, rotate CCW (+)
+            float rot = (diff > 0) ? -0.4f : 0.4f;
+            move_input = {0.0f, 0.0f, rot};
+            Serial.print(F("[AVOID] Aligning to wall, diff="));
+            Serial.println(diff);
+            return;
+        }
+    }
+
+    // ── STRAFE PHASE ─────────────────────────────────────────────
+    // Lock direction on first entry (after alignment if both were blocked,
+    // or immediately if only one IR was blocked to begin with).
     if (last_strafe_dir == 0.0f) {
-        // Prefer the side away from whichever front IR fired.
-        // Sonar-only: default left unless rear-left is blocked.
         if (fl_blocked && !fr_blocked) {
-            // obstacle on left → want to go right; override if rear-right blocked
+            // Obstacle on left → strafe right unless rear-right is blocked
             last_strafe_dir = rr_blocked ? -1.0f : 1.0f;
         } else if (!fl_blocked && fr_blocked) {
-            // obstacle on right → want to go left; override if rear-left blocked
+            // Obstacle on right → strafe left unless rear-left is blocked
             last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
         } else {
-            // both IR (or sonar only) blocked → pick whichever rear is clear
+            // Both blocked but now square — pick whichever rear is clear
             last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
         }
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
@@ -353,9 +435,7 @@ void avoid_obstacle() {
         Serial.println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
     }
 
-    // ── Direction is locked — check if rear has closed it off ──
-    // Only flip if the rear sensor on the committed side is now blocked
-    // AND the opposite rear is clear (i.e. there is actually somewhere to go).
+    // Only flip if the committed rear closes off AND the other is clear
     if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
         last_strafe_dir = -1.0f;
         last_dir        = LEFT;
@@ -366,7 +446,6 @@ void avoid_obstacle() {
         Serial.println(F("[AVOID] RL closed — flipping to RIGHT"));
     }
 
-    // ── Apply the locked direction ──────────────────────────────
     move_input         = {last_strafe_dir, 0.0f, 0.0f};
     currently_strafing = true;
     Serial.print(F("[AVOID] Strafing: "));
@@ -375,38 +454,61 @@ void avoid_obstacle() {
 
 // ================================================================
 //  DETECT FIRE
+//  scan_360 = 0  → spinning 360, tracking peak sensor reading
+//  scan_360 = 1  → scan done, rotate back toward max_spin_angle
+//  scan_360 = -1 → aligned, stop detect_fire
 // ================================================================
 void detect_fire() {
-    if (scan_360 == 0 && fires_extinguished == 0) {
+    if (scan_360 == 0) {
         if (spin_angle >= 350.0 && spin_angle < 358.0) {
-            Serial.println("done");
+            // Full rotation complete
             scan_360 = 1;
-            detect_fire_output_flag = 0;
+            detect_fire_output_flag = 1;
         } else if (spin_angle < 345.0) {
-            int dif = abs(sensorValues[3] - sensorValues[2]);
-            if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif <= 50) {
-                Serial.print(sensorValues[3]);
-                Serial.print(",");
-                Serial.println(sensorValues[2]);
-                cummulative_sensor_value += (sensorValues[3] + sensorValues[2]) / 2;
-                spin_angle_cummulative += spin_angle;
-                val_counter++;
-            } else if (sensorValues[3] > 15 && sensorValues[2] > 15 && dif > 50) {
-                if (spin_angle_average != spin_angle_cummulative / val_counter) {
-                    spin_angle_average = spin_angle_cummulative / val_counter;
-                    sensor_value_average = cummulative_sensor_value / val_counter;
-                    detect_angles[scan_number] = spin_angle_average;
-                    detect_distances[scan_number] = sensor_value_average;
-                    cummulative_sensor_value = 0;
-                    spin_angle_cummulative = 0;
-                    val_counter = 0;
-                    scan_number++;
+            if (sensorValues[3] > 80 && sensorValues[2] > 80) {
+                int dif = sensorValues[0] - sensorValues[1];
+                int buffer = (sensorValues[1] < 300 || sensorValues[0] < 300) ? 10 : 50;
+
+                if (sensorValues[1] > 30 && sensorValues[0] > 30 && abs(dif) <= buffer) {
+                    if (sensorValues[0] > max_sensor_value) {
+                        max_sensor_value = sensorValues[0];
+                        max_spin_angle   = spin_angle;
+                    }
+                    if (sensorValues[0] < min_sensor_value) {
+                        min_sensor_value = sensorValues[0];
+                    }
                 }
             }
-            move_input = {0.0f, 0.0f, 0.8f};
-            detect_fire_command = MOVE;
+            move_input = {0.0f, 0.0f, 0.8f};  // antiCW spin
+            detect_fire_command     = MOVE;
             detect_fire_output_flag = 1;
         }
+
+    } else if (scan_360 == 1) {
+        // Rotate toward the angle where sensor peak was recorded
+        if (sensorValues[3] > 80 && sensorValues[2] > 80) {
+            int dif    = sensorValues[0] - sensorValues[1];
+            int buffer = (sensorValues[1] < 300 || sensorValues[0] < 300) ? 10 : 50;
+
+            detect_fire_output_flag = 1;
+
+            if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value
+                && abs(dif) <= buffer) {
+                // Centred on fire — hand off to realign/extinguish
+                scan_360 = -1;
+                detect_fire_output_flag = 0;
+            }
+        } else {
+            // Not seeing fire yet — spin toward where peak was
+            float dir = (max_spin_angle < 180.0f) ? 0.8f : -0.8f;
+            move_input = {0.0f, 0.0f, dir};
+            detect_fire_command     = MOVE;
+            detect_fire_output_flag = 1;
+        }
+
+    } else {
+        // scan_360 == -1: aligned, detect_fire yields
+        detect_fire_output_flag = 0;
     }
 }
 
@@ -414,23 +516,44 @@ void detect_fire() {
 //  EXTINGUISH FIRE
 // ================================================================
 void extinguish_fire() {
-    // stub — not yet implemented
+    if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700) {
+        // Aligned and fire visible but not close enough — drive forward
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command     = MOVE;
+        move_input = {0.0f, 0.5f, 0.0f};
+    } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
+        // Close enough — turn fan on
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command     = FAN_ON;
+    } else if (motor_input == FAN_ON && realign_to_fire_output_flag == 1) {
+        // Was fanning but lost alignment — fan off, count extinguished
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command     = FAN_OFF;
+        fires_extinguished++;
+    } else {
+        extinguish_fire_output_flag = 0;
+    }
 }
 
 // ================================================================
 //  ARBITRATE
 // ================================================================
 void arbitrate() {
-    if (cruise_output_flag == 1)
-        motor_input = cruise_command;
-    if (realign_to_fire_output_flag == 1)
-        motor_input = realign_to_fire_command;
-    if (avoid_obstacle_output_flag == 1)
-        motor_input = avoid_obstacle_command;
-    if (extinguish_fire_output_flag == 1)
-        motor_input = extinguish_fire_command;
-    if (detect_fire_output_flag == 1)
-        motor_input = detect_fire_command;
+    if (cruise_output_flag == 1){
+        motor_input = cruise_command;}
+    // if (realign_to_fire_output_flag == 1)
+    //     motor_input = realign_to_fire_command;
+    if (avoid_obstacle_output_flag == 1){
+        motor_input = avoid_obstacle_command;}
+    // if (extinguish_fire_output_flag == 1)
+    //     motor_input = extinguish_fire_command;
+    // if (detect_fire_output_flag == 1)
+    //     motor_input = detect_fire_command;
+
+    // if (fires_extinguished >= 2) {
+    //     motor_input = FINISH;
+    // }
+
     robotMove();
 }
 
@@ -446,7 +569,7 @@ void serial_read_conditions() {
     }
 
     spin_angle = GYRO_reading();
-    sonar = read_sonarsensor();
+    sonar      = read_sonarsensor();
 }
 
 // ================================================================
@@ -461,8 +584,17 @@ void robotMove() {
             stopRobot();
             break;
         case FAN_ON:
+            stopRobot();
+            digitalWrite(FAN_PIN, HIGH);
             break;
         case FAN_OFF:
+            digitalWrite(FAN_PIN, LOW);
+            break;
+        case FINISH:
+            stopRobot();
+            disable_motors();
+            Serial.println("TASK COMPLETE");
+            while (1) delay(10);
             break;
     }
 }
@@ -501,14 +633,14 @@ void read_IR_sensors() {
     float signal3 = sum3 / 4.0f;
     float signal4 = sum4 / 4.0f;
 
-    front_left_IR  = 17948 * pow(signal1, -1.22);
-    front_left_IR  = (front_left_IR  + 4.4859)  / 1.0697;
+    front_left_IR  = 17948.0f * pow(signal1, -1.22f);
+    front_left_IR  = (front_left_IR  + 4.4859f)  / 1.0697f;
 
     front_right_IR = 17948.0f * pow(signal2, -1.22f);
-    front_right_IR = (front_right_IR + 5.6134)  / 1.14117;
+    front_right_IR = (front_right_IR + 5.6134f)  / 1.14117f;
 
-    rear_left_IR   = 17948 * pow(signal3, -1.22);
-    rear_left_IR   = (rear_left_IR   + 7.7957)  / 2.5496;
+    rear_left_IR   = 17948.0f * pow(signal3, -1.22f);
+    rear_left_IR   = (rear_left_IR   + 7.7957f)  / 2.5496f;
 
     rear_right_IR  = 17948.0f * pow(signal4, -1.22f);
     rear_right_IR  = (rear_right_IR  + 10.8049f) / 2.9308f;
@@ -519,7 +651,6 @@ void read_IR_sensors() {
 // ================================================================
 float read_sonarsensor() {
     unsigned long t1, t2, pulse_width;
-    float cm;
 
     digitalWrite(TRIG_PIN, HIGH);
     delayMicroseconds(10);
@@ -527,9 +658,7 @@ float read_sonarsensor() {
 
     t1 = micros();
     while (digitalRead(ECHO_PIN) == 0) {
-        t2 = micros();
-        pulse_width = t2 - t1;
-        if (pulse_width > (MAX_DIST + 1000)) {
+        if (micros() - t1 > (MAX_DIST + 1000)) {
             Serial.println("HC-SR04: NOT found");
             return 999;
         }
@@ -537,23 +666,18 @@ float read_sonarsensor() {
 
     t1 = micros();
     while (digitalRead(ECHO_PIN) == 1) {
-        t2 = micros();
-        pulse_width = t2 - t1;
-        if (pulse_width > (MAX_DIST + 1000)) {
+        if (micros() - t1 > (MAX_DIST + 1000)) {
             Serial.println("HC-SR04: Out of range");
             return 999;
         }
     }
 
-    t2 = micros();
-    pulse_width = t2 - t1;
-    cm = pulse_width / 58.0;
-
+    pulse_width = micros() - t1;
     if (pulse_width > MAX_DIST) {
         Serial.println("HC-SR04: Out of range");
         return 999;
     }
-    return cm;
+    return pulse_width / 58.0f;
 }
 
 // ================================================================
@@ -583,9 +707,9 @@ void updateIMU() {
 //  GYRO READING
 // ================================================================
 void tare_heading() {
-    headingOffset = currentHeading;
-    velX = 0.0f;
-    distX = 0.0f;
+    headingOffset  = currentHeading;
+    velX           = 0.0f;
+    distX          = 0.0f;
     lastTimeMicros = micros();
 }
 
@@ -617,15 +741,16 @@ float GYRO_reading() {
             return headingError;
         }
     }
-
     return headingError;
 }
 
 // ================================================================
 //  MECANUM DRIVE
+//  x = strafe right (+1), y = forward (+1), rotation = CW (+1)
+//  Servo always points forward.
 // ================================================================
 void mecanumDrive(float x, float y, float rotation) {
-    sensor_servo.write(SERVO_CENTRE);  // sonar always looks forward
+    sensor_servo.write(SERVO_CENTRE);
 
     motors_active = true;
     rotation = -rotation;
