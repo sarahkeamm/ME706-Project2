@@ -118,7 +118,7 @@ bool  avoid_aligned      = false;
 bool  currently_strafing = false;
 float last_strafe_dir    = 0.0f;
 
-const float IR_FRONT_DANGER_CM  = 7.0f;
+const float IR_FRONT_DANGER_CM  = 10.0f;
 const float IR_FRONT_WARNING_CM = 15.0f;
 const float IR_REAR_DANGER_CM   = 15.0f;
 const float SONAR_FRONT_OBSTACLE = 7.0f;
@@ -369,8 +369,21 @@ void avoid_obstacle() {
     bool fl_blocked    = (front_left_IR  < IR_FRONT_WARNING_CM);
     bool fr_blocked    = (front_right_IR < IR_FRONT_WARNING_CM);
     bool sonar_blocked = (sonar          < SONAR_FRONT_OBSTACLE);
-    bool rl_blocked    = (rear_left_IR   < ROBOT_CLEARANCE);
-    bool rr_blocked    = (rear_right_IR  < ROBOT_CLEARANCE);
+    bool rl_blocked    = false;
+    bool rr_blocked    = false;
+
+    if (fl_blocked && !fr_blocked) {
+        rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
+        rr_blocked = rear_right_IR < SIDE_DANGER; 
+    }
+    if (!fl_blocked && fr_blocked){
+        rl_blocked = rear_left_IR < SIDE_DANGER;
+        rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
+    }
+    if (fl_blocked && fr_blocked || sonar_blocked){
+        rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
+        rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
+    }
 
     // All three front clear → disengage
     if (!fl_blocked && !fr_blocked && !sonar_blocked) {
@@ -391,30 +404,30 @@ void avoid_obstacle() {
     // ── WALL ALIGN PHASE ────────────────────────────────────────
     // Enter alignment if both IRs are blocked and no strafe is locked yet.
     // Stay in it until the two readings are within tolerance.
-    if (fl_blocked && fr_blocked && last_strafe_dir == 0.0f) {
-        wall_aligning = true;
-    }
+    // if (fl_blocked && fr_blocked && last_strafe_dir == 0.0f) {
+    //     wall_aligning = true;
+    // }
 
-    if (wall_aligning) {
-        float diff = front_left_IR - front_right_IR;
+    // if (wall_aligning) {
+    //     float diff = front_left_IR - front_right_IR;
 
-        if (fabs(diff) <= WALL_ALIGN_TOLERANCE_CM) {
-            // Readings are equal — robot is square to the wall
-            wall_aligning = false;
-            Serial.println(F("[AVOID] Wall aligned"));
-            // Fall through immediately to lock strafe direction below
-        } else {
-            // Rotate toward whichever side is further away so both
-            // readings converge:
-            //   FL > FR  →  robot's left corner is further, rotate CW (-)
-            //   FL < FR  →  robot's right corner is further, rotate CCW (+)
-            float rot = (diff > 0) ? -0.4f : 0.4f;
-            move_input = {0.0f, 0.0f, rot};
-            Serial.print(F("[AVOID] Aligning to wall, diff="));
-            Serial.println(diff);
-            return;
-        }
-    }
+    //     if (fabs(diff) <= WALL_ALIGN_TOLERANCE_CM) {
+    //         // Readings are equal — robot is square to the wall
+    //         wall_aligning = false;
+    //         Serial.println(F("[AVOID] Wall aligned"));
+    //         // Fall through immediately to lock strafe direction below
+    //     } else {
+    //         // Rotate toward whichever side is further away so both
+    //         // readings converge:
+    //         //   FL > FR  →  robot's left corner is further, rotate CW (-)
+    //         //   FL < FR  →  robot's right corner is further, rotate CCW (+)
+    //         float rot = (diff > 0) ? -0.4f : 0.4f;
+    //         move_input = {0.0f, 0.0f, rot};
+    //         Serial.print(F("[AVOID] Aligning to wall, diff="));
+    //         Serial.println(diff);
+    //         return;
+    //     }
+    // }
 
     // ── STRAFE PHASE ─────────────────────────────────────────────
     // Lock direction on first entry (after alignment if both were blocked,
