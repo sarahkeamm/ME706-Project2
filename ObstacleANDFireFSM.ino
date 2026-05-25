@@ -48,7 +48,13 @@ struct DriveCommand {
 };
 
 // shared move_input — written by whichever behaviour wins arbitration
+DriveCommand detect_move_input;
+DriveCommand cruise_move_input;
+DriveCommand avoid_move_input;
+DriveCommand extinguish_move_input;
+DriveCommand realign_move_input;
 DriveCommand move_input;
+
 
 // per-behaviour MOTION commands and flags
 MOTION detect_fire_command;
@@ -279,8 +285,8 @@ STATE initialising() {
 STATE running(){
     serial_read_conditions(); //read all sensors
     cruise();
-    avoid_obstacle();
     realign_to_fire();
+    avoid_obstacle();
     extinguish_fire();
     detect_fire();
 
@@ -306,14 +312,11 @@ void cruise() {
     //float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
     float correction = 0; // --------------------------- need to change once integrated with align_to_fire
     cruise_command = MOVE;
-    move_input  = {0.0f, DRIVE_SPEED, correction};
+    cruise_move_input  = {0.0f, DRIVE_SPEED, correction};
     cruise_output_flag = 1;
 }
 
 void realign_to_fire() {
-        if (fires_extinguished >= 2) {
-            stopped();
-        } else {
             if ((sensorValues[3] > 80 && sensorValues[2] > 80)) { //if light detected by long range
             int dif = sensorValues[0] - sensorValues[1];
             // SerialCom->println(dif);
@@ -329,12 +332,12 @@ void realign_to_fire() {
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+                realign_move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                move_input = {0.0f, 0.0f, 0.5f}; //ANTI
+                realign_move_input = {0.0f, 0.0f, 0.5f}; //ANTI
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = 1.0;
@@ -348,11 +351,10 @@ void realign_to_fire() {
             rotate = 1;
             last_dir = -1;
             }
-            move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
+            realign_move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
             realign_to_fire_command = MOVE;
             realign_to_fire_output_flag = 1;
             }
-        }
         
 }
 
@@ -428,7 +430,7 @@ void avoid_obstacle() {
     }
 
     // ── Apply the locked direction ──────────────────────────────
-    move_input         = {last_strafe_dir, 0.0f, 0.0f};
+    avoid_move_input         = {last_strafe_dir, 0.0f, 0.0f};
     currently_strafing = true;
     Serial.print(F("[AVOID] Strafing: "));
     Serial.println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
@@ -439,6 +441,11 @@ void avoid_obstacle() {
 //  DETECT FIRE
 // ================================================================
 void detect_fire() {
+
+    if (fires_extinguished == 2) {
+        stopped();
+        return;
+    }
 
     if (scan_360 == -1) {
         detect_fire_command = STOP;
@@ -475,10 +482,10 @@ void detect_fire() {
         }
 
         detect_fire_output_flag = 1;
-        move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+        detect_move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
         detect_fire_command = MOVE;
 
-    } else if (scan_360 == 1) {
+    } else if (scan_360 == 1 && fires_extinguished == 0) {
         detect_fire_output_flag = 1;
         if (sensorValues[3] > 80 && sensorValues[2] > 80) {
                 int dif = sensorValues[0] - sensorValues[1];
@@ -496,24 +503,37 @@ void detect_fire() {
                     SerialCom->println("detect = 0");
                 } else {
                     if (max_spin_angle < 180) {
-                        move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
+                        detect_move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
                         detect_fire_command = MOVE;
                     } else {
-                        move_input = {0.0f, 0.0f, -0.5f}; // CLOCKWISE
+                        detect_move_input = {0.0f, 0.0f, -0.5f}; // CLOCKWISE
                         detect_fire_command = MOVE;
                 }
             }
 
         } else {
             if (max_spin_angle < 180) {
-                move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+                detect_move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
                 detect_fire_command = MOVE;
             } else {
-                move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
+                detect_move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
                 detect_fire_command = MOVE;
             }
         }
-    } 
+    } else if (scan_360 == 1 && fires_extinguished == 1) {
+        if (sonar <= 10) {
+            detect_fire_output_flag = 0;
+            detect_move_input = {-0.5f, 0.0f, 0.0f};
+            detect_fire_command = MOVE;
+        } else {
+            if (realign_to_fire_output_flag == 0) {
+                scan_360 = -1;
+            }
+            detect_fire_output_flag = realign_to_fire_output_flag;
+            detect_fire_command = realign_to_fire_command;
+            detect_move_input = realign_move_input;
+        }
+    }
 }
 
 
@@ -526,7 +546,7 @@ void extinguish_fire()
     if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700 ) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = MOVE;
-        move_input = {0.0f, 0.5f, 0.0f};
+        extinguish_move_input = {0.0f, 0.5f, 0.0f};
     } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_ON;
@@ -534,7 +554,7 @@ void extinguish_fire()
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_OFF;
         fires_extinguished++;
-        SerialCom->println(fires_extinguished);
+        // SerialCom->println(fires_extinguished);
     } else {
         extinguish_fire_output_flag = 0;
     }
@@ -544,16 +564,13 @@ void extinguish_fire()
 //  ARBITRATE
 // ================================================================
 void arbitrate() {
-    if (cruise_output_flag == 1)
-        motor_input = cruise_command;
-    if (realign_to_fire_output_flag == 1)
-        motor_input = realign_to_fire_command;
-    if (avoid_obstacle_output_flag == 1)
-        motor_input = avoid_obstacle_command;
-    if (extinguish_fire_output_flag == 1)
-        motor_input = extinguish_fire_command;
-    if (detect_fire_output_flag == 1)
-        motor_input = detect_fire_command;
+    if (cruise_output_flag == 1) { motor_input = cruise_command; move_input = cruise_move_input;}
+    if (realign_to_fire_output_flag == 1) { motor_input = realign_to_fire_command; move_input = realign_move_input;}
+    if (avoid_obstacle_output_flag == 1) { motor_input = avoid_obstacle_command; move_input = avoid_move_input;}
+    if (extinguish_fire_output_flag == 1) {motor_input = extinguish_fire_command; move_input = extinguish_move_input;}
+    if (detect_fire_output_flag == 1) { motor_input = detect_fire_command; move_input = detect_move_input;}
+
+
     robotMove();
 }
 
