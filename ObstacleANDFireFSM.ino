@@ -605,6 +605,11 @@ void avoid_obstacle() {
 // ================================================================
 void detect_fire() {
     //initial scan for fire
+    if (scan_360 == -1) {
+        detect_fire_output_flag = 0;
+        return;
+    }
+
     if (scan_360 == 0) {
         if (spin_angle >= 350.0 && spin_angle < 358.0) {
             scan_360 = 1;
@@ -667,11 +672,7 @@ void detect_fire() {
                 detect_fire_output_flag = 1;
             }
         }
-    } else {
-        // SerialCom->println("no_detect");
-        detect_fire_output_flag = 1;
-        detect_fire_command = STOP;
-    }
+    } 
 }
 
 
@@ -750,6 +751,7 @@ void robotMove() {
         case FAN_OFF:
             // turn fan off
             digitalWrite(FAN_PIN, LOW); // Turn fan OFF
+            delay(1000);
             break;
         case FINISH:
             stopRobot();
