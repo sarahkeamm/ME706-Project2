@@ -765,13 +765,13 @@ float GYRO_reading() {
 //  Servo follows strafe direction during obstacle avoidance only.
 // ================================================================
 void mecanumDrive(float x, float y, float rotation) {
-    if (avoid_obstacle_output_flag == 1) {
-        if (x > 0)       sensor_servo.write(SERVO_RIGHT);
-        else if (x < 0)  sensor_servo.write(SERVO_LEFT);
-        else              sensor_servo.write(SERVO_CENTRE);
-    } else {
+    // if (avoid_obstacle_output_flag == 1) {
+    //     if (x > 0)       sensor_servo.write(SERVO_RIGHT);
+    //     else if (x < 0)  sensor_servo.write(SERVO_LEFT);
+    //     else              sensor_servo.write(SERVO_CENTRE);
+    // } else {
         sensor_servo.write(SERVO_CENTRE);  // ← ADD THIS
-    }
+    // }
 
     motors_active = true;
     rotation = -rotation;
