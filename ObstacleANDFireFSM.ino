@@ -74,7 +74,7 @@ float velX = 0.0f;
 float distX = 0.0f;
 unsigned long lastTimeMicros = 0;
 int fires_extinguished = 0;
-bool scan_360 = 0;
+int scan_360 = 0;
 float spin_angle = 0;
 float max_spin_angle = 0;
 int max_sensor_value = 0;
@@ -86,7 +86,7 @@ int min_sensor_value = 1023;
 //  REALIGN VARIABLES AND CONSTANTS
 // ----------------------------------------------------------------
 int rotate = 0;
-int last_dir = 0;
+int last_dir = -1;
 #define RIGHT 1
 #define LEFT 0
 
@@ -279,8 +279,8 @@ STATE initialising() {
 STATE running(){
     serial_read_conditions(); //read all sensors
     cruise();
-    avoid_obstacle();
-    realign_to_fire();
+    // avoid_obstacle();
+    // realign_to_fire();
     extinguish_fire();
     detect_fire();
 
@@ -306,14 +306,13 @@ void cruise() {
     //float correction = constrain(straightPID.compute(heading_locked, getHeading()) * 0.01f, -0.3f, 0.3f);
     float correction = 0; // --------------------------- need to change once integrated with align_to_fire
     cruise_command = MOVE;
-    move_input     = {0.0f, DRIVE_SPEED, correction};
+    move_input  = {0.0f, DRIVE_SPEED, correction};
     cruise_output_flag = 1;
 }
 
 void realign_to_fire() {
         if (fires_extinguished >= 2) {
             stopped();
-            break;
         } else {
             if ((sensorValues[3] > 80 && sensorValues[2] > 80)) { //if light detected by long range
             int dif = sensorValues[0] - sensorValues[1];
@@ -606,7 +605,7 @@ void avoid_obstacle() {
 // ================================================================
 void detect_fire() {
     //initial scan for fire
-    if (scan_360) {
+    if (scan_360 == 0) {
         if (spin_angle >= 350.0 && spin_angle < 358.0) {
             scan_360 = 1;
             detect_fire_output_flag = 1;
@@ -639,13 +638,12 @@ void detect_fire() {
             detect_fire_output_flag = 1;
         }
     } else if (scan_360 == 1) {
-        SerialCom->print(max_spin_angle);
-        SerialCom->print(",");
-        SerialCom->println(max_sensor_value);
         if (sensorValues[3] > 80 && sensorValues[2] > 80) {
                 int dif = sensorValues[0] - sensorValues[1];
-
                 int buffer;
+
+                detect_fire_output_flag = 1;
+
                 if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value) {
                     if (sensorValues[1] < 300 || sensorValues[0] < 300) {
                         buffer = 10;
@@ -654,8 +652,8 @@ void detect_fire() {
                     }
 
                     if (abs(dif) <= buffer) {
-                        detect_fire_output_flag = 0;
                         scan_360 = -1;
+                        detect_fire_output_flag = 0;
                     }
                 }
         } else {
@@ -670,7 +668,9 @@ void detect_fire() {
             }
         }
     } else {
-        detect_fire_output_flag = 0;
+        // SerialCom->println("no_detect");
+        detect_fire_output_flag = 1;
+        detect_fire_command = STOP;
     }
 }
 
@@ -682,12 +682,12 @@ void extinguish_fire()
 {
 
     if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700 ) {
-        extinuish_fire_output_flag = 1;
-        extingush_fire_command = MOVE;
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command = MOVE;
         move_input = {0.0f, 0.5f, 0.0f};
     } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
-        extinuish_fire_output_flag = 1;
-        extingush_fire_command = FAN_ON;
+        extinguish_fire_output_flag = 1;
+        extinguish_fire_command = FAN_ON;
     } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON){
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_OFF;
