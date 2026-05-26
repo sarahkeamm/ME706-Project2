@@ -28,6 +28,7 @@ const unsigned int MAX_DIST = 23200;  // ~400 cm timeout
 // three machine states
 enum STATE {
     INITIALISING,
+    DETECT_FIRE,
     RUNNING,
     STOPPED
 };
@@ -260,6 +261,7 @@ void loop() {
     static STATE machine_state = INITIALISING;
     switch (machine_state) {
         case INITIALISING: machine_state = initialising(); break;
+        case DETECT_FIRE: machine_state = detect_fire(); break;
         case RUNNING:      machine_state = running();      break;
         case STOPPED:      machine_state = stopped();      break;
     }
@@ -270,7 +272,7 @@ void loop() {
 // ================================================================
 STATE initialising() {
     enable_motors();
-    Serial.println("INITIALISING");
+    SerialCom->println("INITIALISING");
 
     delay(500);
     for (int i = 0; i < 50; i++) { updateIMU(); delay(10); }
@@ -280,15 +282,17 @@ STATE initialising() {
     //heading_locked = getHeading();
     //straightPID.reset();
 
-    return RUNNING;
+    return DETECT_FIRE;
 }
 
 STATE running(){
+    // SerialCom->println("RUNNING");
+
     serial_read_conditions(); //read all sensors
+
     cruise();
     realign_to_fire();
-    // avoid_obstacle();
-    detect_fire();
+    avoid_obstacle();
     extinguish_fire();
 
     arbitrate();
@@ -482,16 +486,26 @@ void avoid_obstacle() {
 // ================================================================
 //  DETECT FIRE
 // ================================================================
-void detect_fire() {
+STATE detect_fire() {
+
+    // SerialCom->println("DETECTING");
+
+    serial_read_conditions();
+    realign_to_fire();
+
+    cruise_output_flag = 0;
+    avoid_obstacle_output_flag = 0;
+    extinguish_fire_output_flag = 0;
 
     if (fires_extinguished == 2) {
         stopped();
-        return;
+        return STOPPED;
     }
 
     if (scan_360 == -1) {
-        detect_fire_command = STOP;
+        motor_input = STOP;
         detect_fire_output_flag = 0;
+        return RUNNING;
     }
     //initial scan for fire
     if (scan_360 == 0) {
@@ -524,9 +538,8 @@ void detect_fire() {
         }
 
         detect_fire_output_flag = 1;
-        detect_move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
-        detect_fire_command = MOVE;
-
+        move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+        motor_input = MOVE;
     } else if (scan_360 == 1 && fires_extinguished == 0) {
         detect_fire_output_flag = 1;
         if (sensorValues[3] > 80 && sensorValues[2] > 80) {
@@ -542,46 +555,47 @@ void detect_fire() {
                 if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value && abs(dif) <= buffer) {
                     scan_360 = -1;
                     detect_fire_output_flag = 0;
-                    // SerialCom->println("detect = 0");
+                    return RUNNING;
                 } else {
                     if (max_spin_angle < 180) {
-                        detect_move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
-                        detect_fire_command = MOVE;
+                        move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
+                        motor_input = MOVE;
                     } else {
-                        detect_move_input = {0.0f, 0.0f, -0.5f}; // CLOCKWISE
-                        detect_fire_command = MOVE;
+                        move_input = {0.0f, 0.0f, -0.5f}; // CLOCKWISE
+                        motor_input = MOVE;
                 }
             }
 
         } else {
             if (max_spin_angle < 180) {
-                detect_move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
-                detect_fire_command = MOVE;
+                move_input = {0.0f, 0.0f, 0.8f}; // antiCLOCKWISE 
+                motor_input = MOVE;
             } else {
-                detect_move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
-                detect_fire_command = MOVE;
+                move_input = {0.0f, 0.0f, -0.8f}; // CLOCKWISE
+                motor_input = MOVE;
             }
         }
     } else if (scan_360 == 1 && fires_extinguished == 1) {
-        SerialCom->print(detect_fire_output_flag);
-        SerialCom->print(",");
-        SerialCom->println(extinguish_fire_output_flag);
         if (sonar <= 15) {
             detect_fire_output_flag = 1;
-            detect_move_input = {0.0f, -0.5f, 0.0f};
-            detect_fire_command = MOVE;
+            move_input = {0.0f, -0.5f, 0.0f};
+            motor_input = MOVE;
         } else {
             detect_fire_output_flag = realign_to_fire_output_flag;
-            detect_fire_command = realign_to_fire_command;
-            detect_move_input = realign_move_input;
+            motor_input = realign_to_fire_command;
+            move_input = realign_move_input;
             if (detect_fire_output_flag == 0) {
                 SerialCom->println("2nd fire found");
-                detect_fire_command = STOP;
-                detect_move_input = {0.0f, 0.0f, 0.0f};
+                motor_input = STOP;
+                move_input = {0.0f, 0.0f, 0.0f};
                 scan_360 = -1;
+                return RUNNING;
             }
         }
     }
+
+    robotMove();
+    return DETECT_FIRE;
 }
 
 
@@ -594,16 +608,13 @@ void extinguish_fire()
     if (realign_to_fire_output_flag == 0 && sonar > 5 && sensorValues[1] > 700 ) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = MOVE;
-        extinguish_move_input = {0.0f, 0.5f, 0.0f};
+        extinguish_move_input = {0.0f, 0.6f, 0.0f};
     } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_ON;
     } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON) {
         extinguish_fire_command = FAN_OFF;
         extinguish_fire_output_flag = 1;
-        scan_360 = 1;
-        fires_extinguished++;
-        SerialCom->println("Fire extinguished! Total: " + String(fires_extinguished));
     } else {
         extinguish_fire_output_flag = 0;
     }
@@ -616,11 +627,7 @@ void arbitrate() {
     if (cruise_output_flag == 1) { motor_input = cruise_command; move_input = cruise_move_input;}
     if (realign_to_fire_output_flag == 1) { motor_input = realign_to_fire_command; move_input = realign_move_input;}
     if (avoid_obstacle_output_flag == 1) { motor_input = avoid_obstacle_command; move_input = avoid_move_input;}
-    if (detect_fire_output_flag == 1) { motor_input = detect_fire_command; move_input = detect_move_input;}
     if (extinguish_fire_output_flag == 1) {motor_input = extinguish_fire_command; move_input = extinguish_move_input;}
-
-    
-
 
     robotMove();
 }
@@ -645,6 +652,7 @@ void serial_read_conditions() {
 //  ROBOT MOVE
 // ================================================================
 void robotMove() {
+    // SerialCom->println("ROBOT_MOVE");
 
     switch (motor_input) {
         case MOVE:
@@ -660,6 +668,10 @@ void robotMove() {
         case FAN_OFF:
             digitalWrite(FAN_PIN, LOW); // Turn fan OFF
             delay(500);
+            fires_extinguished++;
+            scan_360 = 1;
+            SerialCom->println(fires_extinguished);
+            detect_fire();
             break;
         case FINISH:
             stopRobot();
