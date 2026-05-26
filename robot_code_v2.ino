@@ -213,6 +213,7 @@ const float STRAFE_SPEED     = 0.7f;
 const float TURN_SPEED       = 0.5f;
 const float REALIGN_DEADBAND = 3.0f;
 
+
 // ================================================================
 //  SETUP
 // ================================================================
@@ -273,9 +274,9 @@ STATE running() {
     serial_read_conditions();
     cruise();
     avoid_obstacle();
-  //  realign_to_fire();
-  //  extinguish_fire();
- //   detect_fire();
+    //realign_to_fire();
+    //extinguish_fire();
+    //detect_fire();
 
     arbitrate();
     return RUNNING;
@@ -352,25 +353,41 @@ void realign_to_fire() {
 
 // ================================================================
 //  AVOID OBSTACLE
-//  Sonar always forward. All 3 front sensors must clear before
-//  disengaging. Direction locked on first trigger.
+//  During cruise:  sonar points forward (SERVO_CENTRE).
+//  During strafe:  sonar points 90 deg to the strafe side to detect
+//                  obstacles approaching the middle of the robot from
+//                  the side. That reading must also be clear before
+//                  the robot resumes cruising forward.
 //
 //  When both front IRs are blocked, rotate to equalise them
 //  (robot squares up to the wall) before locking a strafe direction.
-//  This ensures the strafe runs parallel to the wall rather than
-//  angling into it.
 // ================================================================
 
-// How close the two IR readings need to be (cm) to count as square
 const float WALL_ALIGN_TOLERANCE_CM = 2.0f;
-bool wall_aligning = false;   // true while squaring up to wall
+const float SONAR_SIDE_OBSTACLE_CM  = 15.0f;  // tune as needed
+bool wall_aligning = false;
+int  servo_pos     = SERVO_CENTRE;   // track current position to avoid redundant writes
+
+// Helper — only move servo if position actually changed
+void setServo(int pos) {
+    if (pos != servo_pos) {
+        sensor_servo.write(pos);
+        servo_pos = pos;
+    }
+}
 
 void avoid_obstacle() {
     bool fl_blocked    = (front_left_IR  < IR_FRONT_WARNING_CM);
     bool fr_blocked    = (front_right_IR < IR_FRONT_WARNING_CM);
-    bool sonar_blocked = (sonar          < SONAR_FRONT_OBSTACLE);
     bool rl_blocked    = false;
     bool rr_blocked    = false;
+
+ 
+    // Sonar meaning depends on servo position:
+    //   centre  → reading is forward
+    //   left/right → reading is sideways (strafe-side obstacle check)
+    bool sonar_front_blocked = (servo_pos == SERVO_CENTRE) && (sonar < SONAR_FRONT_OBSTACLE);
+    bool sonar_side_blocked  = (servo_pos != SERVO_CENTRE) && (sonar < SONAR_SIDE_OBSTACLE_CM);
 
     if (fl_blocked && !fr_blocked) {
         rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
@@ -380,67 +397,45 @@ void avoid_obstacle() {
         rl_blocked = rear_left_IR < SIDE_DANGER;
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
     }
-    if (fl_blocked && fr_blocked || sonar_blocked){
+    if (fl_blocked && fr_blocked || sonar_front_blocked){
         rl_blocked = rear_left_IR < ROBOT_CLEARANCE;
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE; 
     }
 
-    // All three front clear → disengage
-    if (!fl_blocked && !fr_blocked && !sonar_blocked) {
-        avoid_obstacle_output_flag = 0;
-        avoid_strafe_dir           = 0.0f;
-        avoid_aligned              = false;
-        currently_strafing         = false;
-        last_strafe_dir            = 0.0f;
-        wall_aligning              = false;
-        sonar_fwd_triggered        = false;
-        Serial.println(F("[AVOID] All clear"));
-        return;
+    // ── ALL CLEAR ───────────────────────────────────────────────
+    // Both front IRs gone → swing servo back to centre so next loop
+    // reads forward, then check that forward reading is also clear.
+    if (!fl_blocked && !fr_blocked) {
+        setServo(SERVO_CENTRE);   // may be a no-op if already centre
+        if (!sonar_front_blocked) {
+            avoid_obstacle_output_flag = 0;
+            avoid_strafe_dir           = 0.0f;
+            avoid_aligned              = false;
+            currently_strafing         = false;
+            last_strafe_dir            = 0.0f;
+            wall_aligning              = false;
+            sonar_fwd_triggered        = false;
+            Serial.println(F("[AVOID] All clear"));
+            return;
+        }
+        // IRs clear but sonar still sees something forward — keep avoiding
     }
 
     avoid_obstacle_output_flag = 1;
     avoid_obstacle_command     = MOVE;
 
-    // ── WALL ALIGN PHASE ────────────────────────────────────────
-    // Enter alignment if both IRs are blocked and no strafe is locked yet.
-    // Stay in it until the two readings are within tolerance.
-    // if (fl_blocked && fr_blocked && last_strafe_dir == 0.0f) {
-    //     wall_aligning = true;
-    // }
 
-    // if (wall_aligning) {
-    //     float diff = front_left_IR - front_right_IR;
-
-    //     if (fabs(diff) <= WALL_ALIGN_TOLERANCE_CM) {
-    //         // Readings are equal — robot is square to the wall
-    //         wall_aligning = false;
-    //         Serial.println(F("[AVOID] Wall aligned"));
-    //         // Fall through immediately to lock strafe direction below
-    //     } else {
-    //         // Rotate toward whichever side is further away so both
-    //         // readings converge:
-    //         //   FL > FR  →  robot's left corner is further, rotate CW (-)
-    //         //   FL < FR  →  robot's right corner is further, rotate CCW (+)
-    //         float rot = (diff > 0) ? -0.4f : 0.4f;
-    //         move_input = {0.0f, 0.0f, rot};
-    //         Serial.print(F("[AVOID] Aligning to wall, diff="));
-    //         Serial.println(diff);
-    //         return;
-    //     }
-    // }
-
-    // ── STRAFE PHASE ─────────────────────────────────────────────
-    // Lock direction on first entry (after alignment if both were blocked,
-    // or immediately if only one IR was blocked to begin with).
+    // ── LOCK STRAFE DIRECTION ────────────────────────────────────
+    // Runs on first trigger for: one IR blocked, both IR blocked (post-align),
+    // or sonar-only blocked.
     if (last_strafe_dir == 0.0f) {
         if (fl_blocked && !fr_blocked) {
-            // Obstacle on left → strafe right unless rear-right is blocked
             last_strafe_dir = rr_blocked ? -1.0f : 1.0f;
         } else if (!fl_blocked && fr_blocked) {
-            // Obstacle on right → strafe left unless rear-left is blocked
             last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
         } else {
-            // Both blocked but now square — pick whichever rear is clear
+            // Both IRs blocked (now square) OR sonar-only → default left
+            // unless rear-left is blocked
             last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
         }
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
@@ -448,25 +443,31 @@ void avoid_obstacle() {
         Serial.println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
     }
 
-    // Only flip if the committed rear closes off AND the other is clear
-    if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
-        last_strafe_dir = -1.0f;
-        last_dir        = LEFT;
-        Serial.println(F("[AVOID] RR closed — flipping to LEFT"));
-    } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
-        last_strafe_dir = 1.0f;
-        last_dir        = RIGHT;
-        Serial.println(F("[AVOID] RL closed — flipping to RIGHT"));
+    // ── SERVO: point sideways while strafing with IR blocked,
+    //           stay centre for sonar-only or post-IR-clear cases ──
+    if (currently_strafing && (fl_blocked || fr_blocked)) {
+        setServo(last_strafe_dir > 0 ? SERVO_RIGHT : SERVO_LEFT);
+    } else {
+        setServo(SERVO_CENTRE);
     }
 
-    // ── BACK UP if the strafe-side front IR is dangerously close ──
-    // Strafing right into a wall < 5 cm on the right, or strafing left
-    // into a wall < 5 cm on the left — back up until > 5 cm before strafing.
+    // ── DIRECTION FLIP ───────────────────────────────────────────
+    // Side sonar counts the same as the rear IR on the strafe side.
+    if (last_strafe_dir > 0 && (rr_blocked || sonar_side_blocked) && !rl_blocked) {
+        last_strafe_dir = -1.0f;
+        last_dir        = LEFT;
+        Serial.println(F("[AVOID] RR/sonar closed — flipping to LEFT"));
+    } else if (last_strafe_dir < 0 && (rl_blocked || sonar_side_blocked) && !rr_blocked) {
+        last_strafe_dir = 1.0f;
+        last_dir        = RIGHT;
+        Serial.println(F("[AVOID] RL/sonar closed — flipping to RIGHT"));
+    }
+
+    // ── BACK UP if strafe-side front IR is dangerously close ─────
     bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 10.0f)
                            || (last_strafe_dir < 0 && front_left_IR  < 10.0f);
-
     if (strafe_into_danger) {
-        move_input = {0.0f, -0.5f, 0.0f};
+        move_input = {0.0f, -0.6f, 0.0f};
         Serial.println(F("[AVOID] Danger on strafe side — backing up"));
         return;
     }
@@ -772,11 +773,9 @@ float GYRO_reading() {
 // ================================================================
 //  MECANUM DRIVE
 //  x = strafe right (+1), y = forward (+1), rotation = CW (+1)
-//  Servo always points forward.
+//  Servo position is managed by avoid_obstacle(), not here.
 // ================================================================
 void mecanumDrive(float x, float y, float rotation) {
-    sensor_servo.write(SERVO_CENTRE);
-
     motors_active = true;
     rotation = -rotation;
     float lf =  y + x + rotation;
