@@ -121,7 +121,7 @@ float last_strafe_dir    = 0.0f;
 const float IR_FRONT_DANGER_CM  = 10.0f;
 const float IR_FRONT_WARNING_CM = 15.0f;
 const float IR_REAR_DANGER_CM   = 15.0f;
-const float SONAR_FRONT_OBSTACLE = 7.0f;
+const float SONAR_FRONT_OBSTACLE = 10.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 
@@ -372,6 +372,7 @@ int  servo_pos     = SERVO_CENTRE;   // track current position to avoid redundan
 void setServo(int pos) {
     if (pos != servo_pos) {
         sensor_servo.write(pos);
+        delay(200);
         servo_pos = pos;
     }
 }
