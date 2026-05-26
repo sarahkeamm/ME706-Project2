@@ -500,7 +500,7 @@ void detect_fire() {
                 if (sensorValues[1] > min_sensor_value && sensorValues[0] > min_sensor_value && abs(dif) <= buffer) {
                     scan_360 = -1;
                     detect_fire_output_flag = 0;
-                    SerialCom->println("detect = 0");
+                    // SerialCom->println("detect = 0");
                 } else {
                     if (max_spin_angle < 180) {
                         detect_move_input = {0.0f, 0.0f, 0.5f}; // antiCLOCKWISE 
@@ -522,16 +522,18 @@ void detect_fire() {
         }
     } else if (scan_360 == 1 && fires_extinguished == 1) {
         if (sonar <= 10) {
-            detect_fire_output_flag = 0;
-            detect_move_input = {-0.5f, 0.0f, 0.0f};
+            detect_fire_output_flag = 1;
+            detect_move_input = {0.0f, -0.5f, 0.0f};
             detect_fire_command = MOVE;
         } else {
-            if (realign_to_fire_output_flag == 0) {
-                scan_360 = -1;
-            }
             detect_fire_output_flag = realign_to_fire_output_flag;
             detect_fire_command = realign_to_fire_command;
             detect_move_input = realign_move_input;
+            if (detect_fire_output_flag == 0) {
+                detect_fire_command = STOP;
+                detect_move_input = {0.0f, 0.0f, 0.0f};
+                scan_360 = -1;
+            }
         }
     }
 }
@@ -550,11 +552,11 @@ void extinguish_fire()
     } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_ON;
-    } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON){
-        extinguish_fire_output_flag = 1;
+    } else if (realign_to_fire_output_flag == 1 && extinguish_fire_command == FAN_ON) {
         extinguish_fire_command = FAN_OFF;
+        extinguish_fire_output_flag = 1;
         fires_extinguished++;
-        // SerialCom->println(fires_extinguished);
+        SerialCom->println("FAN OFF");
     } else {
         extinguish_fire_output_flag = 0;
     }
@@ -604,12 +606,12 @@ void robotMove() {
             break;
         case FAN_ON:
             stopRobot();
-            // turn fan on
             digitalWrite(FAN_PIN, HIGH); // Turn fan ON
+            delay(100);
             break;
         case FAN_OFF:
-            // turn fan off
             digitalWrite(FAN_PIN, LOW); // Turn fan OFF
+            delay(100);
             break;
         case FINISH:
             stopRobot();
