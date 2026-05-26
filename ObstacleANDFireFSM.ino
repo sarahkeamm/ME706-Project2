@@ -286,9 +286,9 @@ STATE running(){
     serial_read_conditions(); //read all sensors
     cruise();
     realign_to_fire();
-    avoid_obstacle();
-    extinguish_fire();
+    // avoid_obstacle();
     detect_fire();
+    extinguish_fire();
 
     arbitrate();
     //should set all sensor values to 0 here
@@ -557,11 +557,11 @@ void extinguish_fire()
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_ON;
     } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON) {
-        SerialCom->println("FAN OFF");
         extinguish_fire_command = FAN_OFF;
         extinguish_fire_output_flag = 1;
         scan_360 = 1;
         fires_extinguished++;
+        SerialCom->println("Fire extinguished! Total: " + String(fires_extinguished));
     } else {
         extinguish_fire_output_flag = 0;
     }
