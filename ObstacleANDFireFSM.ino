@@ -521,7 +521,10 @@ void detect_fire() {
             }
         }
     } else if (scan_360 == 1 && fires_extinguished == 1) {
-        if (sonar <= 10) {
+        SerialCom->print(detect_fire_output_flag);
+        SerialCom->print(",");
+        SerialCom->println(extinguish_fire_output_flag);
+        if (sonar <= 15) {
             detect_fire_output_flag = 1;
             detect_move_input = {0.0f, -0.5f, 0.0f};
             detect_fire_command = MOVE;
@@ -530,6 +533,7 @@ void detect_fire() {
             detect_fire_command = realign_to_fire_command;
             detect_move_input = realign_move_input;
             if (detect_fire_output_flag == 0) {
+                SerialCom->println("2nd fire found");
                 detect_fire_command = STOP;
                 detect_move_input = {0.0f, 0.0f, 0.0f};
                 scan_360 = -1;
@@ -552,11 +556,12 @@ void extinguish_fire()
     } else if (realign_to_fire_output_flag == 0 && sonar <= 5 && sensorValues[1] > 700) {
         extinguish_fire_output_flag = 1;
         extinguish_fire_command = FAN_ON;
-    } else if (realign_to_fire_output_flag == 1 && extinguish_fire_command == FAN_ON) {
+    } else if (realign_to_fire_output_flag == 1 && motor_input == FAN_ON) {
+        SerialCom->println("FAN OFF");
         extinguish_fire_command = FAN_OFF;
         extinguish_fire_output_flag = 1;
+        scan_360 = 1;
         fires_extinguished++;
-        SerialCom->println("FAN OFF");
     } else {
         extinguish_fire_output_flag = 0;
     }
@@ -569,8 +574,10 @@ void arbitrate() {
     if (cruise_output_flag == 1) { motor_input = cruise_command; move_input = cruise_move_input;}
     if (realign_to_fire_output_flag == 1) { motor_input = realign_to_fire_command; move_input = realign_move_input;}
     if (avoid_obstacle_output_flag == 1) { motor_input = avoid_obstacle_command; move_input = avoid_move_input;}
-    if (extinguish_fire_output_flag == 1) {motor_input = extinguish_fire_command; move_input = extinguish_move_input;}
     if (detect_fire_output_flag == 1) { motor_input = detect_fire_command; move_input = detect_move_input;}
+    if (extinguish_fire_output_flag == 1) {motor_input = extinguish_fire_command; move_input = extinguish_move_input;}
+
+    
 
 
     robotMove();
@@ -607,11 +614,10 @@ void robotMove() {
         case FAN_ON:
             stopRobot();
             digitalWrite(FAN_PIN, HIGH); // Turn fan ON
-            delay(100);
             break;
         case FAN_OFF:
             digitalWrite(FAN_PIN, LOW); // Turn fan OFF
-            delay(100);
+            delay(500);
             break;
         case FINISH:
             stopRobot();
