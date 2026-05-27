@@ -172,7 +172,7 @@ unsigned long last_imu_us = 0;
 Servo lf_motor, lr_motor, rr_motor, rf_motor;
 Servo sensor_servo;
 bool  motors_active = false;
-const int baseSpeed = 200;
+int baseSpeed = 200;
 
 // ================================================================
 //  PID
@@ -488,7 +488,7 @@ STATE running() {
     // confirm the robot is within 10 cm, preventing false triggers.
     bool sr_left_ready  = sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN;
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
-    bool sonar_close    = (sonar <= 16.0f);
+    bool sonar_close    = (sonar <= 17.0f);
 
     if (sr_left_ready && sr_right_ready && sonar_close) {
         stopRobot();
@@ -617,9 +617,53 @@ void cruise() {
     cruise_output_flag = 1;
 }
 
+void realign_to_fire() {
+            if ((sensorValues[3] > 70 && sensorValues[2] > 70)) { //if light detected by long range
+            int dif = sensorValues[0] - sensorValues[1];
+            // SerialCom->println(dif);
+
+            int buffer;
+            if (sensorValues[1] > 30 && sensorValues[0] > 30) {
+                if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+                    buffer = 10;
+                } else {
+                    buffer = 50;
+                }
+
+            if (abs(dif) <= buffer) {
+                realign_to_fire_output_flag = 0;
+            } else if (dif > buffer) {
+                realign_move_input = {0.0f, 0.0f, -0.5f}; //CLOCKWISE
+                realign_to_fire_command = MOVE;
+                realign_to_fire_output_flag = 1;
+                rotate = -1.0;
+            } else if (dif < (-1 * buffer)) {
+                realign_move_input = {0.0f, 0.0f, 0.5f}; //ANTI
+                realign_to_fire_command = MOVE;
+                realign_to_fire_output_flag = 1;
+                rotate = 1.0;
+            } 
+            }
+            } else if ((sensorValues[2] <= 60 || sensorValues[3] <= 60)) { //else if no light detected
+            if (last_dir == LEFT) {
+            rotate =  -1;
+            last_dir = -1;
+            } else if (last_dir == RIGHT) {
+            rotate = 1;
+            last_dir = -1;
+            }
+            realign_move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
+            realign_to_fire_command = MOVE;
+            realign_to_fire_output_flag = 1;
+            }
+        
+}
+
+
 // ================================================================
 //  REALIGN TO FIRE
 // ================================================================
+/*
 void realign_to_fire() {
     int sr_right = sensorValues[PT_SHORT_RIGHT];
     int sr_left  = sensorValues[PT_SHORT_LEFT];
@@ -646,14 +690,14 @@ void realign_to_fire() {
             realign_to_fire_output_flag = 0;  // aligned
         } else if (dif > buffer) {
             // Right stronger → fire to our right → turn CW
-            realign_move_input          = {0.0f, 0.0f, -0.3f};
+            realign_move_input          = {0.0f, 0.0f, -0.35f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = -1;
             last_dir = RIGHT;
         } else {
             // Left stronger → fire to our left → turn CCW
-            realign_move_input          = {0.0f, 0.0f, 0.3f};
+            realign_move_input          = {0.0f, 0.0f, 0.35f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = 1;
@@ -679,13 +723,13 @@ void realign_to_fire() {
             realign_to_fire_output_flag = 0;
             rotate = (last_dir == LEFT) ? -1 : 1;
         } else if (dif > buffer) {
-            realign_move_input          = {0.0f, 0.0f, -0.3f};
+            realign_move_input          = {0.0f, 0.0f, -0.35f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = -1;
             last_dir = RIGHT;
         } else {
-            realign_move_input          = {0.0f, 0.0f, 0.3f};
+            realign_move_input          = {0.0f, 0.0f, 0.35f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = 1;
@@ -701,6 +745,7 @@ void realign_to_fire() {
         realign_to_fire_output_flag = 1;
     }
 }
+*/
 
 // ================================================================
 //  AVOID OBSTACLE  (logic preserved; only move_input assignment clarified)
@@ -774,28 +819,25 @@ void avoid_obstacle() {
     // ── FLIP only if strafe-side rear sensor closes up ─────────
     // Only flip for a dynamic obstacle appearing on our strafe side,
     // NOT because a front sensor is blocked (that is the wall we are avoiding).
-    if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
-        last_strafe_dir = -1.0f;
-        last_dir        = LEFT;
-        SerialCom->println(F("[AVOID] RR closed — flipping LEFT"));
-    } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
-        last_strafe_dir = 1.0f;
-        last_dir        = RIGHT;
-        SerialCom->println(F("[AVOID] RL closed — flipping RIGHT"));
-    }
-
-     // bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < IR_FRONT_DANGER_CM)
-    //                        || (last_strafe_dir < 0 && front_left_IR  < IR_FRONT_DANGER_CM);
-    // if (strafe_into_danger) {
-    //     avoid_move_input = {0.0f, -0.6f, 0.0f};
-    // } else {
-    //     avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
-    //     currently_strafing = true;
+    // if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
+    //     last_strafe_dir = -1.0f;
+    //     last_dir        = LEFT;
+    //     SerialCom->println(F("[AVOID] RR closed — flipping LEFT"));
+    // } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
+    //     last_strafe_dir = 1.0f;
+    //     last_dir        = RIGHT;
+    //     SerialCom->println(F("[AVOID] RL closed — flipping RIGHT"));
     // }
 
-    // ── STRAFE in locked direction ──────────────────────────────
-    avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
-    currently_strafing = true;
+    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 10)
+                           || (last_strafe_dir < 0 && front_left_IR  < 10);
+    if (strafe_into_danger) {
+        avoid_move_input = {0.0f, -0.6f, 0.0f};
+    } else {
+        avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
+        currently_strafing = true;
+    }  
+
 }
    
 
@@ -805,12 +847,14 @@ void avoid_obstacle() {
 void arbitrate() {
     motor_input = STOP;
     move_input  = {0.0f, 0.0f, 0.0f};
+    baseSpeed = 200;
 
     if (cruise_output_flag == 1) {
         motor_input = cruise_command;
         move_input  = cruise_move_input;
     }
     if (realign_to_fire_output_flag == 1) {
+        baseSpeed = 150;
         motor_input = realign_to_fire_command;
         move_input  = realign_move_input;
     }
