@@ -292,7 +292,7 @@ STATE running(){
 
     cruise();
     realign_to_fire();
-    avoid_obstacle();
+    // avoid_obstacle();
     extinguish_fire();
 
     arbitrate();
@@ -576,18 +576,18 @@ STATE detect_fire() {
         }
     } else if (scan_360 == 1 && fires_extinguished == 1) {
         if (sonar <= 15) {
-            SerialCom->println("BACKING");
             detect_fire_output_flag = 1;
             move_input = {0.0f, -0.5f, 0.0f};
             motor_input = MOVE;
-        } else {
-            SerialCom->println("REALIGNING");
+
+            robotMove();
+            return DETECT_FIRE;
+        } else if (sonar > 15) {
             realign_to_fire();
             if (realign_to_fire_output_flag == 0) {
                 motor_input = STOP;
                 move_input = {0.0f, 0.0f, 0.0f};
                 scan_360 = -1;
-                return RUNNING;
             } else {
                 detect_fire_output_flag = 1;
                 motor_input = realign_to_fire_command;
