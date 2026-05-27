@@ -172,7 +172,7 @@ unsigned long last_imu_us = 0;
 Servo lf_motor, lr_motor, rr_motor, rf_motor;
 Servo sensor_servo;
 bool  motors_active = false;
-int baseSpeed = 200;
+int baseSpeed = 225;
 
 // ================================================================
 //  PID
@@ -490,18 +490,20 @@ STATE running() {
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
     bool sonar_close    = (sonar <= 17.0f);
 
-    if (sr_left_ready && sr_right_ready && sonar_close) {
-        stopRobot();
-        SerialCom->println(F("Fire close -- switching to EXTINGUISH"));
-        return EXTINGUISH;
-    }
-
     // ── Run behaviours ──
     cruise();
 
     realign_to_fire();
     avoid_obstacle();
+
+    if (sr_left_ready && sr_right_ready && sonar_close && realign_to_fire_output_flag == 0) {
+        stopRobot();
+        SerialCom->println(F("Fire close -- switching to EXTINGUISH"));
+        return EXTINGUISH;
+    }
+
     arbitrate();
+
 
     return RUNNING;
 }
@@ -519,7 +521,7 @@ STATE extinguish() {
     const unsigned long FAN_MAX_MS = 12000UL;  // never fan for more than 12 s
 
     // Fire still present when both short-range sensors remain above align threshold
-    bool sr_close = (sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN &&
+    bool sr_close = (sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN ||
                      sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN);
     
     while (sonar > 5) {
@@ -544,9 +546,9 @@ STATE extinguish() {
     unsigned long fan_elapsed = millis() - fan_start_ms;
 
     // Keep fanning until minimum time has elapsed
-    if (fan_elapsed < FAN_MIN_MS) {
-        return EXTINGUISH;
-    }
+    // if (fan_elapsed < FAN_MIN_MS) {
+    //     return EXTINGUISH;
+    // }
 
     // Between min and max: keep fanning only if sensors still see fire
     if (fan_elapsed < FAN_MAX_MS && sr_close) {
@@ -847,7 +849,7 @@ void avoid_obstacle() {
 void arbitrate() {
     motor_input = STOP;
     move_input  = {0.0f, 0.0f, 0.0f};
-    baseSpeed = 200;
+    baseSpeed = 225;
 
     if (cruise_output_flag == 1) {
         motor_input = cruise_command;
