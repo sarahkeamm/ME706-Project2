@@ -35,7 +35,7 @@ int Photopins[] = {A8, A9, A10, A11};
 // ================================================================
 // Long-range: ambient tops out at ~24. Confirmed fire threshold is 70.
 // Long-range sensors stop being useful at ~30 cm (short-range ~500 at that point).
-#define LONG_FIRE_THRESHOLD      70    // long-range: fire definitely present
+#define LONG_FIRE_THRESHOLD      60    // long-range: fire definitely present
 #define LONG_SATURATED_SHORT     500   // short-range value at which long-range is no longer reliable (~30 cm)
 #define LONG_ALIGNED_BUFFER_HI   50   // alignment deadband when long sensors >300
 #define LONG_ALIGNED_BUFFER_LO   10   // alignment deadband when either long sensor <300
@@ -143,7 +143,7 @@ bool  sonar_fwd_triggered = false;
 const float IR_FRONT_WARNING_CM  = 15.0f;
 const float IR_FRONT_DANGER_CM   = 15.0f;
 const float IR_REAR_DANGER_CM    = 15.0f;
-const float SONAR_FRONT_OBSTACLE = 10.0f;
+const float SONAR_FRONT_OBSTACLE = 15.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
@@ -172,7 +172,7 @@ unsigned long last_imu_us = 0;
 Servo lf_motor, lr_motor, rr_motor, rf_motor;
 Servo sensor_servo;
 bool  motors_active = false;
-const int baseSpeed = 150;
+const int baseSpeed = 200;
 
 // ================================================================
 //  PID
@@ -199,7 +199,7 @@ PID turnPID = { 5.0f, 0.01f, 0.3f, 0, 0 };
 //  DRIVE SPEEDS
 // ================================================================
 const float DRIVE_SPEED  = 0.8f;
-const float TURN_SPEED   = 0.5f;
+const float TURN_SPEED   = 0.75f;
 
 // ================================================================
 //  SERIAL
@@ -488,7 +488,7 @@ STATE running() {
     // confirm the robot is within 10 cm, preventing false triggers.
     bool sr_left_ready  = sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN;
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
-    bool sonar_close    = (sonar <= 10.0f);
+    bool sonar_close    = (sonar <= 16.0f);
 
     if (sr_left_ready && sr_right_ready && sonar_close) {
         stopRobot();
@@ -498,6 +498,7 @@ STATE running() {
 
     // ── Run behaviours ──
     cruise();
+
     realign_to_fire();
     avoid_obstacle();
     arbitrate();
@@ -512,13 +513,24 @@ STATE extinguish() {
     serial_read_conditions();
     static bool          fan_running  = false;
     static unsigned long fan_start_ms = 0;
+    sonar = read_sonarsensor();
 
-    const unsigned long FAN_MIN_MS = 7000UL;   // always fan for at least 7 s
+    const unsigned long FAN_MIN_MS = 5000UL;   // always fan for at least 7 s
     const unsigned long FAN_MAX_MS = 12000UL;  // never fan for more than 12 s
 
     // Fire still present when both short-range sensors remain above align threshold
     bool sr_close = (sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN &&
                      sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN);
+    
+    while (sonar > 5) {
+      move_input = {0.0f, 0.5f, 0.0f};
+      motor_input = MOVE;
+      robotMove(); 
+      delay(50);
+      sonar = read_sonarsensor();
+    }
+    stopRobot();
+    delay(300);
 
     if (!fan_running) {
         stopRobot();
@@ -634,14 +646,14 @@ void realign_to_fire() {
             realign_to_fire_output_flag = 0;  // aligned
         } else if (dif > buffer) {
             // Right stronger → fire to our right → turn CW
-            realign_move_input          = {0.0f, 0.0f, -0.5f};
+            realign_move_input          = {0.0f, 0.0f, -0.3f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = -1;
             last_dir = RIGHT;
         } else {
             // Left stronger → fire to our left → turn CCW
-            realign_move_input          = {0.0f, 0.0f, 0.5f};
+            realign_move_input          = {0.0f, 0.0f, 0.3f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = 1;
@@ -667,13 +679,13 @@ void realign_to_fire() {
             realign_to_fire_output_flag = 0;
             rotate = (last_dir == LEFT) ? -1 : 1;
         } else if (dif > buffer) {
-            realign_move_input          = {0.0f, 0.0f, -0.5f};
+            realign_move_input          = {0.0f, 0.0f, -0.3f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = -1;
             last_dir = RIGHT;
         } else {
-            realign_move_input          = {0.0f, 0.0f, 0.5f};
+            realign_move_input          = {0.0f, 0.0f, 0.3f};
             realign_to_fire_command     = MOVE;
             realign_to_fire_output_flag = 1;
             rotate   = 1;
@@ -696,7 +708,7 @@ void realign_to_fire() {
 void setServo(int pos) {
     if (pos != servo_pos) {
         sensor_servo.write(pos);
-        delay(100);
+        delay(200);
         servo_pos = pos;
     }
 }
@@ -742,40 +754,50 @@ void avoid_obstacle() {
     avoid_obstacle_output_flag = 1;
     avoid_obstacle_command     = MOVE;
 
-    if (last_strafe_dir == 0.0f) {
-        if (fl_blocked && !fr_blocked) {
-            last_strafe_dir = rr_blocked ? -1.0f : 1.0f;
-        } else if (!fl_blocked && fr_blocked) {
-            last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
+     if (last_strafe_dir == 0.0f) {
+        if (!rr_blocked && rl_blocked) {
+            last_strafe_dir = 1.0f;   // right rear clear → strafe right
+        } else if (!rl_blocked && rr_blocked) {
+            last_strafe_dir = -1.0f;  // left rear clear → strafe left
+        } else if (!rr_blocked && !rl_blocked) {
+            // Both rear clear — use front sensor that triggered to pick side
+            last_strafe_dir = fl_blocked ? 1.0f : -1.0f;
         } else {
-            last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
+            // Both rear blocked — default right
+            last_strafe_dir = 1.0f;
         }
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
+        SerialCom->print(F("[AVOID] Direction locked: "));
+        SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
     }
 
-    if (currently_strafing && (fl_blocked || fr_blocked)) {
-        setServo(last_strafe_dir > 0 ? SERVO_RIGHT : SERVO_LEFT);
-    } else {
-        setServo(SERVO_CENTRE);
-    }
-
-    if (last_strafe_dir > 0 && (rr_blocked || sonar_side_blocked) && !rl_blocked) {
+    // ── FLIP only if strafe-side rear sensor closes up ─────────
+    // Only flip for a dynamic obstacle appearing on our strafe side,
+    // NOT because a front sensor is blocked (that is the wall we are avoiding).
+    if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
         last_strafe_dir = -1.0f;
         last_dir        = LEFT;
-    } else if (last_strafe_dir < 0 && (rl_blocked || sonar_side_blocked) && !rr_blocked) {
+        SerialCom->println(F("[AVOID] RR closed — flipping LEFT"));
+    } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
         last_strafe_dir = 1.0f;
         last_dir        = RIGHT;
+        SerialCom->println(F("[AVOID] RL closed — flipping RIGHT"));
     }
 
-    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < IR_FRONT_DANGER_CM)
-                           || (last_strafe_dir < 0 && front_left_IR  < IR_FRONT_DANGER_CM);
-    if (strafe_into_danger) {
-        avoid_move_input = {0.0f, -0.6f, 0.0f};
-    } else {
-        avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
-        currently_strafing = true;
-    }
+     // bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < IR_FRONT_DANGER_CM)
+    //                        || (last_strafe_dir < 0 && front_left_IR  < IR_FRONT_DANGER_CM);
+    // if (strafe_into_danger) {
+    //     avoid_move_input = {0.0f, -0.6f, 0.0f};
+    // } else {
+    //     avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
+    //     currently_strafing = true;
+    // }
+
+    // ── STRAFE in locked direction ──────────────────────────────
+    avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
+    currently_strafing = true;
 }
+   
 
 // ================================================================
 //  ARBITRATE  (priority: extinguish > avoid > realign > cruise)
