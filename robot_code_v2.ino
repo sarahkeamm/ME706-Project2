@@ -42,8 +42,8 @@ int Photopins[] = {A8, A9, A10, A11};
 
 // Short-range: fire visible and alignment should begin at >700.
 // The same 700 threshold is used to gate the EXTINGUISH transition from RUNNING.
-#define SHORT_FIRE_VISIBLE       35    // short-range: sensor is active (not ambient noise)
-#define SHORT_FIRE_ALIGN         960   // short-range: fire close enough to align with and extinguish
+#define SHORT_FIRE_VISIBLE       30    // short-range: sensor is active (not ambient noise)
+#define SHORT_FIRE_ALIGN         950   // short-range: fire ~10 cm away — begin extinguish
 
 // ================================================================
 //  STATE ENUMS
@@ -175,6 +175,27 @@ bool  motors_active = false;
 const int baseSpeed = 150;
 
 // ================================================================
+//  PID
+// ================================================================
+struct PID {
+    float kp, ki, kd, integral, prev_error;
+    static float wrapAngle(float a) {
+        while (a >  180.0f) a -= 360.0f;
+        while (a < -180.0f) a += 360.0f;
+        return a;
+    }
+    float compute(float target, float current) {
+        float error = wrapAngle(target - current);
+        integral  = constrain(integral + error, -200.0f, 200.0f);
+        float out = kp * error + ki * integral + kd * (error - prev_error);
+        prev_error = error;
+        return out;
+    }
+    void reset() { integral = 0; prev_error = 0; }
+};
+PID turnPID = { 5.0f, 0.01f, 0.3f, 0, 0 };
+
+// ================================================================
 //  DRIVE SPEEDS
 // ================================================================
 const float DRIVE_SPEED  = 0.8f;
@@ -211,27 +232,6 @@ STATE running();
 STATE extinguish();
 STATE initialising();
 STATE stopped();
-
-// ================================================================
-//  PID
-// ================================================================
-struct PID {
-    float kp, ki, kd, integral, prev_error;
-    static float wrapAngle(float a) {
-        while (a >  180.0f) a -= 360.0f;
-        while (a < -180.0f) a += 360.0f;
-        return a;
-    }
-    float compute(float target, float current) {
-        float error = wrapAngle(target - current);
-        integral  = constrain(integral + error, -200.0f, 200.0f);
-        float out = kp * error + ki * integral + kd * (error - prev_error);
-        prev_error = error;
-        return out;
-    }
-    void reset() { integral = 0; prev_error = 0; }
-};
-PID turnPID = { 5.0f, 0.01f, 0.3f, 0, 0 };
 
 // ================================================================
 //  SETUP
@@ -450,10 +450,9 @@ STATE detect_fire() {
     return RUNNING;
 }
 
-
-// Blocking spin: rotate to match the bearing recorded during the 360° scan.
-// bearingDeg and GYRO_reading() are both in the 0–360 accumulated space,
-// so we must NOT use wrapAngle() here — that would fold values >180° incorrectly.
+// Blocking spin to an absolute gyro heading recorded during the scan.
+// bearingDeg and GYRO_reading() are both 0–360 absolute headings,
+// so shortest-path normalisation to ±180 gives the correct error direction.
 void spin_to_fire_bearing(float bearingDeg) {
     SerialCom->print(F("Spinning to bearing: "));
     SerialCom->println(bearingDeg);
@@ -470,7 +469,7 @@ void spin_to_fire_bearing(float bearingDeg) {
         // Normalise to ±180 within the 0–360 space
         if (error >  180.0f) error -= 360.0f;
         if (error < -180.0f) error += 360.0f;
-        float correction = constrain(error * 0.06f, -0.5f, 0.5f);
+        float correction = constrain(error * 0.03f, -0.5f, 0.5f);
         mecanumDrive(0.0f, 0.0f, correction);
         delay(10);
     } while (fabs(error) > 3.0f);
@@ -484,15 +483,16 @@ void spin_to_fire_bearing(float bearingDeg) {
 STATE running() {
     serial_read_conditions();
 
-    // ── Check short-range sensors: both must read above the align/extinguish
-    // threshold (700). Long-range is unreliable this close (~30 cm).
+    // ── Check short-range sensors AND sonar before entering EXTINGUISH.
+    // Both short-range sensors must read above threshold AND sonar must
+    // confirm the robot is within 10 cm, preventing false triggers.
     bool sr_left_ready  = sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN;
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
     bool sonar_close    = (sonar <= 10.0f);
 
     if (sr_left_ready && sr_right_ready && sonar_close) {
         stopRobot();
-        SerialCom->println(F("Fire close — switching to EXTINGUISH"));
+        SerialCom->println(F("Fire close -- switching to EXTINGUISH"));
         return EXTINGUISH;
     }
 
@@ -510,7 +510,11 @@ STATE running() {
 // ================================================================
 STATE extinguish() {
     serial_read_conditions();
-    static bool fan_running = false;
+    static bool          fan_running  = false;
+    static unsigned long fan_start_ms = 0;
+
+    const unsigned long FAN_MIN_MS = 7000UL;   // always fan for at least 7 s
+    const unsigned long FAN_MAX_MS = 12000UL;  // never fan for more than 12 s
 
     // Fire still present when both short-range sensors remain above align threshold
     bool sr_close = (sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN &&
@@ -519,25 +523,13 @@ STATE extinguish() {
     if (!fan_running) {
         stopRobot();
         digitalWrite(FAN_PIN, HIGH);
-        fan_running = true;
+        fan_running  = true;
         fan_start_ms = millis();
         SerialCom->println(F("Fan ON"));
         return EXTINGUISH;
     }
 
-    if (sr_close) {
-        // Fire still present — keep fanning
-        return EXTINGUISH;
-    }
-
-    // Fire gone
-    digitalWrite(FAN_PIN, LOW);
-    fan_running = false;
-    fires_extinguished++;
-    SerialCom->print(F("Fires extinguished: "));
-    SerialCom->println(fires_extinguished);
-
-     unsigned long fan_elapsed = millis() - fan_start_ms;
+    unsigned long fan_elapsed = millis() - fan_start_ms;
 
     // Keep fanning until minimum time has elapsed
     if (fan_elapsed < FAN_MIN_MS) {
@@ -704,7 +696,7 @@ void realign_to_fire() {
 void setServo(int pos) {
     if (pos != servo_pos) {
         sensor_servo.write(pos);
-        delay(250);
+        delay(100);
         servo_pos = pos;
     }
 }
