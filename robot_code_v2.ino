@@ -488,8 +488,9 @@ STATE running() {
     // threshold (700). Long-range is unreliable this close (~30 cm).
     bool sr_left_ready  = sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN;
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
+    bool sonar_close    = (sonar <= 10.0f);
 
-    if (sr_left_ready && sr_right_ready) {
+    if (sr_left_ready && sr_right_ready && sonar_close) {
         stopRobot();
         SerialCom->println(F("Fire close — switching to EXTINGUISH"));
         return EXTINGUISH;
@@ -519,6 +520,7 @@ STATE extinguish() {
         stopRobot();
         digitalWrite(FAN_PIN, HIGH);
         fan_running = true;
+        fan_start_ms = millis();
         SerialCom->println(F("Fan ON"));
         return EXTINGUISH;
     }
@@ -529,6 +531,25 @@ STATE extinguish() {
     }
 
     // Fire gone
+    digitalWrite(FAN_PIN, LOW);
+    fan_running = false;
+    fires_extinguished++;
+    SerialCom->print(F("Fires extinguished: "));
+    SerialCom->println(fires_extinguished);
+
+     unsigned long fan_elapsed = millis() - fan_start_ms;
+
+    // Keep fanning until minimum time has elapsed
+    if (fan_elapsed < FAN_MIN_MS) {
+        return EXTINGUISH;
+    }
+
+    // Between min and max: keep fanning only if sensors still see fire
+    if (fan_elapsed < FAN_MAX_MS && sr_close) {
+        return EXTINGUISH;
+    }
+
+    // Either sensors clear after min, or max time reached — stop fan
     digitalWrite(FAN_PIN, LOW);
     fan_running = false;
     fires_extinguished++;
