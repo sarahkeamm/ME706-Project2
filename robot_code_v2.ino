@@ -142,10 +142,10 @@ float last_strafe_dir    = 0.0f;
 bool  wall_aligning      = false;
 bool  sonar_fwd_triggered = false;
 
-const float IR_FRONT_WARNING_CM  = 12.0f;
-const float IR_FRONT_DANGER_CM   = 12.0f;
+const float IR_FRONT_WARNING_CM  = 13.0f;
+const float IR_FRONT_DANGER_CM   = 13.0f;
 const float IR_REAR_DANGER_CM    = 10.0f;
-const float SONAR_FRONT_OBSTACLE = 12.0f;
+const float SONAR_FRONT_OBSTACLE = 13.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
@@ -500,16 +500,17 @@ STATE running() {
     realign_to_fire();
     avoid_obstacle();
 
-     if (avoid_obstacle_output_flag == 0) {
-        if (cruising_since_ms == 0) cruising_since_ms = millis();
-        if (millis() - cruising_since_ms >= 2000) {
-            last_strafe_dir     = 0.0f;
-            direction_committed = false;
-            cruising_since_ms   = 0;
-        }
-    } else {
-        cruising_since_ms = 0;
+    if (cruise_output_flag == 1 && avoid_obstacle_output_flag == 0) {
+    if (cruising_since_ms == 0) cruising_since_ms = millis();
+    
+    if (millis() - cruising_since_ms >= 2000) {
+        last_strafe_dir     = 0.0f;
+        direction_committed = false;
+        cruising_since_ms   = 0;
     }
+  } else {
+    cruising_since_ms = 0;
+  }
 
     if (sr_left_ready && sr_right_ready && sonar_close && realign_to_fire_output_flag == 0) {
         stopRobot();
@@ -661,10 +662,7 @@ void avoid_obstacle() {
         avoid_strafe_dir           = 0.0f;
         avoid_aligned              = false;
         currently_strafing         = false;
-        last_strafe_dir            = 0.0f;
-        wall_aligning              = false;
         sonar_fwd_triggered        = false;
-        direction_committed        = false;
         target_locked              = false;
         return;
     }
