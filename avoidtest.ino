@@ -140,7 +140,6 @@ float avoid_strafe_dir   = 0.0f;
 bool  avoid_aligned      = false;
 bool  currently_strafing = false;
 float last_strafe_dir    = 0.0f;
-bool  wall_aligning      = false;
 bool  sonar_fwd_triggered = false;
 
 const float IR_FRONT_WARNING_CM  = 15.0f;
@@ -149,7 +148,7 @@ const float IR_REAR_DANGER_CM    = 15.0f;
 const float SONAR_FRONT_OBSTACLE = 15.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
-const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
+const float SONAR_SIDE_OBSTACLE_CM = 15.0f;
 
 // ================================================================
 //  SERVO
@@ -781,7 +780,7 @@ void avoid_obstacle() {
     } 
 
     if (last_strafe_dir == 0) {
-        bool sonar_blocked = (sonar < SONAR_OBSTACLE_CM);
+        bool sonar_blocked = (sonar < SONAR_FRONT_OBSTACLE);
 
         // ── ALL CLEAR ───────────────────────────────────────────────
         if (!fl_blocked && !sonar_blocked && !fr_blocked) {
@@ -875,7 +874,7 @@ void avoid_obstacle() {
 
     } else if (last_strafe_dir == -1) {
       // moving left 
-        bool sonar_side_blocked = (sonar < SONAR_SIDE_DANGER_CM);
+        bool sonar_side_blocked = (sonar < SONAR_SIDE_OBSTACLE_CM);
         
         if (sonar_fwd_triggered) {
           // if triggered because only sonar
@@ -891,7 +890,6 @@ void avoid_obstacle() {
           avoid_aligned              = false;
           currently_strafing         = false;
           last_strafe_dir            = 0;
-          wall = false; 
           sonar_fwd_triggered        = false;
           sensor_servo.write(SERVO_CENTRE);
           //Serial.println(F("[AVOID] All clear"));
@@ -928,7 +926,7 @@ void avoid_obstacle() {
         }
     } else {
         // last_strafe_dir == 1
-        bool sonar_side_blocked = (sonar < SONAR_SIDE_DANGER_CM);
+        bool sonar_side_blocked = (sonar < SONAR_SIDE_OBSTACLE_CM);
        
         if (sonar_fwd_triggered) {
           // if triggered because only sonar
@@ -940,7 +938,6 @@ void avoid_obstacle() {
         }  else if (!fl_blocked && !fr_blocked) {
           // cleared and can move forward
           avoid_obstacle_output_flag = 0;
-          wall = 0;
           avoid_strafe_dir           = 0.0f;
           avoid_aligned              = false;
           currently_strafing         = false;
