@@ -35,7 +35,7 @@ int Photopins[] = {A8, A9, A10, A11};
 // ================================================================
 // Long-range: ambient tops out at ~24. Confirmed fire threshold is 70.
 // Long-range sensors stop being useful at ~30 cm (short-range ~500 at that point).
-#define LONG_FIRE_THRESHOLD      60    // long-range: fire definitely present
+#define LONG_FIRE_THRESHOLD      80    // long-range: fire definitely present
 #define LONG_SATURATED_SHORT     500   // short-range value at which long-range is no longer reliable (~30 cm)
 #define LONG_ALIGNED_BUFFER_HI   50   // alignment deadband when long sensors >300
 #define LONG_ALIGNED_BUFFER_LO   10   // alignment deadband when either long sensor <300
