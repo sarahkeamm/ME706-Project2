@@ -485,6 +485,8 @@ void spin_to_fire_bearing(float bearingDeg) {
 STATE running() {
     serial_read_conditions();
 
+    static unsigned long cruising_since_ms = 0;
+
     // ── Check short-range sensors AND sonar before entering EXTINGUISH.
     // Both short-range sensors must read above threshold AND sonar must
     // confirm the robot is within 10 cm, preventing false triggers.
@@ -497,6 +499,17 @@ STATE running() {
 
     realign_to_fire();
     avoid_obstacle();
+
+     if (avoid_obstacle_output_flag == 0) {
+        if (cruising_since_ms == 0) cruising_since_ms = millis();
+        if (millis() - cruising_since_ms >= 2000) {
+            last_strafe_dir     = 0.0f;
+            direction_committed = false;
+            cruising_since_ms   = 0;
+        }
+    } else {
+        cruising_since_ms = 0;
+    }
 
     if (sr_left_ready && sr_right_ready && sonar_close && realign_to_fire_output_flag == 0) {
         stopRobot();
