@@ -2,6 +2,8 @@
 #include <Servo.h>
 #include <Adafruit_BNO08x.h>
 
+bool direction_committed = false;  // add this
+
 // ================================================================
 //  PIN DEFINITIONS
 // ================================================================
@@ -140,10 +142,10 @@ float last_strafe_dir    = 0.0f;
 bool  wall_aligning      = false;
 bool  sonar_fwd_triggered = false;
 
-const float IR_FRONT_WARNING_CM  = 15.0f;
-const float IR_FRONT_DANGER_CM   = 15.0f;
-const float IR_REAR_DANGER_CM    = 15.0f;
-const float SONAR_FRONT_OBSTACLE = 15.0f;
+const float IR_FRONT_WARNING_CM  = 12.0f;
+const float IR_FRONT_DANGER_CM   = 12.0f;
+const float IR_REAR_DANGER_CM    = 10.0f;
+const float SONAR_FRONT_OBSTACLE = 12.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
@@ -626,7 +628,6 @@ void avoid_obstacle() {
     bool rr_blocked = false;
 
     bool sonar_front_blocked = (servo_pos == SERVO_CENTRE) && (sonar < SONAR_FRONT_OBSTACLE);
-    bool sonar_side_blocked  = (servo_pos != SERVO_CENTRE) && (sonar < SONAR_SIDE_OBSTACLE_CM);
 
     if (fl_blocked && !fr_blocked) {
         rl_blocked = rear_left_IR  < ROBOT_CLEARANCE;
@@ -641,54 +642,48 @@ void avoid_obstacle() {
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
     }
 
-    if (!fl_blocked && !fr_blocked) {
+    if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
         setServo(SERVO_CENTRE);
-        if (!sonar_front_blocked) {
-            avoid_obstacle_output_flag = 0;
-            avoid_strafe_dir           = 0.0f;
-            avoid_aligned              = false;
-            currently_strafing         = false;
-            last_strafe_dir            = 0.0f;
-            wall_aligning              = false;
-            sonar_fwd_triggered        = false;
-            // After obstacle clear: re-lock onto fire heading
-            target_locked = false;
-            return;
-        }
+        avoid_obstacle_output_flag = 0;
+        avoid_strafe_dir           = 0.0f;
+        avoid_aligned              = false;
+        currently_strafing         = false;
+        last_strafe_dir            = 0.0f;
+        wall_aligning              = false;
+        sonar_fwd_triggered        = false;
+        direction_committed        = false;
+        target_locked              = false;
+        return;
     }
 
     avoid_obstacle_output_flag = 1;
     avoid_obstacle_command     = MOVE;
 
-     if (last_strafe_dir == 0.0f) {
+    if (last_strafe_dir == 0.0f) {
         if (!rr_blocked && rl_blocked) {
-            last_strafe_dir = 1.0f;   // right rear clear → strafe right
+            last_strafe_dir = 1.0f;
         } else if (!rl_blocked && rr_blocked) {
-            last_strafe_dir = -1.0f;  // left rear clear → strafe left
+            last_strafe_dir = -1.0f;
         } else if (!rr_blocked && !rl_blocked) {
-            // Both rear clear — use front sensor that triggered to pick side
             last_strafe_dir = fl_blocked ? 1.0f : -1.0f;
         } else {
-            // Both rear blocked — default right
             last_strafe_dir = 1.0f;
         }
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
-        SerialCom->print(F("[AVOID] Direction locked: "));
+        SerialCom->print(F("[AVOID] Direction committed: "));
         SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
-    }
 
-    // ── FLIP only if strafe-side rear sensor closes up ─────────
-    // Only flip for a dynamic obstacle appearing on our strafe side,
-    // NOT because a front sensor is blocked (that is the wall we are avoiding).
-    // if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
-    //     last_strafe_dir = -1.0f;
-    //     last_dir        = LEFT;
-    //     SerialCom->println(F("[AVOID] RR closed — flipping LEFT"));
-    // } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
-    //     last_strafe_dir = 1.0f;
-    //     last_dir        = RIGHT;
-    //     SerialCom->println(F("[AVOID] RL closed — flipping RIGHT"));
-    // }
+    } else if (!direction_committed) {
+        bool strafe_side_blocked = (last_strafe_dir > 0 && rr_blocked)
+                                || (last_strafe_dir < 0 && rl_blocked);
+        if (strafe_side_blocked) {
+            last_strafe_dir     = -last_strafe_dir;
+            last_dir            = (last_strafe_dir > 0) ? RIGHT : LEFT;
+            direction_committed = true;
+            SerialCom->print(F("[AVOID] One-time flip to: "));
+            SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+        }
+    }
 
     bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 10)
                            || (last_strafe_dir < 0 && front_left_IR  < 10);
@@ -697,7 +692,7 @@ void avoid_obstacle() {
     } else {
         avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
         currently_strafing = true;
-    }  
+    }
 }
 
 void realign_to_fire() {
