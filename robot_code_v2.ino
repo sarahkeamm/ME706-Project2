@@ -37,7 +37,7 @@ int Photopins[] = {A8, A9, A10, A11};
 // ================================================================
 // Long-range: ambient tops out at ~24. Confirmed fire threshold is 70.
 // Long-range sensors stop being useful at ~30 cm (short-range ~500 at that point).
-#define LONG_FIRE_THRESHOLD      80    // long-range: fire definitely present
+#define LONG_FIRE_THRESHOLD      65    // long-range: fire definitely present
 #define LONG_SATURATED_SHORT     500   // short-range value at which long-range is no longer reliable (~30 cm)
 #define LONG_ALIGNED_BUFFER_HI   50   // alignment deadband when long sensors >300
 #define LONG_ALIGNED_BUFFER_LO   10   // alignment deadband when either long sensor <300
@@ -142,10 +142,10 @@ float last_strafe_dir    = 0.0f;
 bool  wall_aligning      = false;
 bool  sonar_fwd_triggered = false;
 
-const float IR_FRONT_WARNING_CM  = 13.0f;
-const float IR_FRONT_DANGER_CM   = 13.0f;
+const float IR_FRONT_WARNING_CM  = 15.0f;
+const float IR_FRONT_DANGER_CM   = 15.0f;
 const float IR_REAR_DANGER_CM    = 10.0f;
-const float SONAR_FRONT_OBSTACLE = 13.0f;
+const float SONAR_FRONT_OBSTACLE = 15.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
@@ -305,139 +305,55 @@ STATE initialising() {
 STATE detect_fire() {
     serial_read_conditions();
 
-    // If we've found both fires and locked onto the nearer one,
-    // go straight to RUNNING.
-    if (target_locked) {
-        SerialCom->print(F("DETECT_FIRE: heading to bearing "));
-        SerialCom->println(target_bearing);
-        return RUNNING;
-    }
-
     // ── SCANNING ──────────────────────────────────────────────
     if (!scan_complete) {
         // Spin anti-clockwise
-        move_input = {0.0f, 0.0f, 0.6f};
+        move_input  = {0.0f, 0.0f, 0.8f};
         motor_input = MOVE;
         robotMove();
 
-        // spin_angle tracks total degrees turned (for 360° completion check).
-        // current_gyro is the absolute heading for bearing storage.
         float current_gyro = GYRO_reading();
 
-        // Long-range fire detection — both sensors must agree
+        // Compute how far we've turned from scan start using shortest-path delta
+        float delta = current_gyro - scan_start_heading;
+        if (delta < 0.0f) delta += 360.0f;   // unwrap to 0–360
+        spin_angle = delta;
+
+        int longAvg = (sensorValues[PT_LONG_RIGHT] + sensorValues[PT_LONG_LEFT]) / 2;
         bool fire_visible = (sensorValues[PT_LONG_RIGHT] > LONG_FIRE_THRESHOLD &&
                              sensorValues[PT_LONG_LEFT]  > LONG_FIRE_THRESHOLD);
 
-        if (fire_visible) {
-            int longAvg = (sensorValues[PT_LONG_RIGHT] + sensorValues[PT_LONG_LEFT]) / 2;
-
-            if (!in_candidate_window) {
-                // Entering a new fire window
-                in_candidate_window  = true;
-                candidate_start_angle = spin_angle;
-                candidate_max_angle   = current_gyro;  // store absolute heading
-                candidate_max_value   = longAvg;
-            } else {
-                // Track peak within this window
-                if (longAvg > candidate_max_value) {
-                    candidate_max_value = longAvg;
-                    candidate_max_angle = current_gyro;  // store absolute heading
-                }
-            }
-        } else {
-            if (in_candidate_window) {
-                // Exiting a fire window — record this candidate
-                in_candidate_window = false;
-                SerialCom->print(F("Candidate found at gyro heading: "));
-                SerialCom->println(candidate_max_angle);
-
-                if (candidate_count == 0) {
-                    fireA = { candidate_max_angle, candidate_max_value, true };
-                    candidate_count = 1;
-                } else if (candidate_count == 1) {
-                    fireB = { candidate_max_angle, candidate_max_value, true };
-                    candidate_count = 2;
-                }
-            }
+        if (fire_visible && longAvg > peak_long_value) {
+            peak_long_value = longAvg;
+            peak_angle      = current_gyro;
         }
 
-        // Check if we've done a full 360°
         if (spin_angle >= 355.0f) {
             scan_complete = true;
             stopRobot();
             delay(200);
             SerialCom->println(F("Scan complete"));
-
-            // Handle lingering window at wrap-around
-            if (in_candidate_window) {
-                in_candidate_window = false;
-                if (candidate_count == 0) {
-                    fireA = { candidate_max_angle, candidate_max_value, true };
-                    candidate_count = 1;
-                } else if (candidate_count == 1) {
-                    fireB = { candidate_max_angle, candidate_max_value, true };
-                    candidate_count = 2;
-                }
-            }
         }
 
         return DETECT_FIRE;
     }
 
-    // ── AFTER SCAN: choose target ──────────────────────────────
-    if (!fireA.valid && !fireB.valid) {
-        // Nothing found — do another scan
+    // ── AFTER SCAN ────────────────────────────────────────────
+    if (peak_long_value == 0) {
+        // Nothing detected — reset and rescan immediately
         SerialCom->println(F("No fire found, rescanning"));
-        scan_complete   = false;
-        spin_angle      = 0.0f;
-        candidate_count = 0;
+        scan_complete      = false;
+        spin_angle         = 0.0f;
+        peak_long_value    = 0;
+        peak_angle         = 0.0f;
         scan_start_heading = GYRO_reading();
         return DETECT_FIRE;
     }
 
-    // Pick the candidate with the higher long-sensor peak —
-    // a stronger reading means the robot is closer or more aligned
-    // (skip whichever fire index we have already extinguished).
-    FireCandidate chosen;
-    if (fires_extinguished == 0) {
-        // First fire: pick the candidate with the stronger signal
-        if (fireA.valid && fireB.valid) {
-            chosen = (fireA.peakLong >= fireB.peakLong) ? fireA : fireB;
-        } else if (fireA.valid) {
-            chosen = fireA;
-        } else {
-            chosen = fireB;
-        }
-    } else {
-        // Second fire: use whichever candidate is still valid
-        // (we'll re-scan if neither is left, but normally one remains)
-        if (fireA.valid && fireB.valid) {
-            // Prefer the one we haven't approached — use the weaker signal
-            // as a heuristic (stronger one was likely fire #1)
-            chosen = (fireA.peakLong <= fireB.peakLong) ? fireA : fireB;
-        } else if (fireA.valid) {
-            chosen = fireA;
-        } else if (fireB.valid) {
-            chosen = fireB;
-        } else {
-            // No candidates left — rescan
-            SerialCom->println(F("No second fire candidate, rescanning"));
-            scan_complete   = false;
-            spin_angle      = 0.0f;
-            candidate_count = 0;
-            fireA.valid     = false;
-            fireB.valid     = false;
-            scan_start_heading = GYRO_reading();
-            return DETECT_FIRE;
-        }
-    }
-
-    target_bearing = chosen.bearing;
-    target_locked  = true;
+    target_bearing = peak_angle;
     SerialCom->print(F("Target bearing: "));
     SerialCom->println(target_bearing);
 
-    // Spin to face the target bearing
     spin_to_fire_bearing(target_bearing);
 
     // Reset RUNNING-state flags
@@ -448,6 +364,13 @@ STATE detect_fire() {
     avoid_strafe_dir            = 0.0f;
     currently_strafing          = false;
     last_dir                    = -1;
+    direction_committed         = false;
+
+    // Reset scan state for next time
+    scan_complete      = false;
+    spin_angle         = 0.0f;
+    peak_long_value    = 0;
+    peak_angle         = 0.0f;
 
     return RUNNING;
 }
@@ -501,13 +424,13 @@ STATE running() {
     avoid_obstacle();
 
     if (cruise_output_flag == 1 && avoid_obstacle_output_flag == 0) {
-    if (cruising_since_ms == 0) cruising_since_ms = millis();
+      if (cruising_since_ms == 0) cruising_since_ms = millis();
     
-    if (millis() - cruising_since_ms >= 2000) {
+      if (millis() - cruising_since_ms >= 2000) {
         last_strafe_dir     = 0.0f;
         direction_committed = false;
         cruising_since_ms   = 0;
-    }
+      }
   } else {
     cruising_since_ms = 0;
   }
@@ -582,15 +505,8 @@ STATE extinguish() {
         return STOPPED;
     }
 
-    // Invalidate whichever candidate matches the bearing we just extinguished
-    if (fireA.valid && fabs(wrapAngle(fireA.bearing - target_bearing)) < 15.0f) {
-        fireA.valid = false;
-    } else if (fireB.valid && fabs(wrapAngle(fireB.bearing - target_bearing)) < 15.0f) {
-        fireB.valid = false;
-    }
-
     // Back away slightly before scanning
-    move_input = {0.0f, -0.6f, 0.0f};
+    move_input = {0.0f, -0.5f, 0.0f};
     motor_input = MOVE;
     for (int i = 0; i < 30; i++) { robotMove(); delay(20); }
     stopRobot();
@@ -651,6 +567,101 @@ void avoid_obstacle() {
         rl_blocked = rear_left_IR  < SIDE_DANGER;
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
     }
+    if (fl_blocked && fr_blocked) {
+        rl_blocked = rear_left_IR  < ROBOT_CLEARANCE;
+        rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
+    }
+
+    // ── ALL CLEAR ────────────────────────────────────────────────
+    if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
+         static unsigned long clear_since_ms = 0;
+        const unsigned long  CLEAR_HOLD_MS  = 200;
+
+        if (currently_strafing && clear_since_ms == 0) {
+            clear_since_ms = millis();
+        }
+
+        if (clear_since_ms != 0 && millis() - clear_since_ms < CLEAR_HOLD_MS) {
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = MOVE;
+            avoid_move_input           = {last_strafe_dir, 0.0f, 0.0f};
+            return;
+        }
+
+        clear_since_ms             = 0;
+        setServo(SERVO_CENTRE);
+        avoid_obstacle_output_flag = 0;
+        avoid_strafe_dir           = 0.0f;
+        avoid_aligned              = false;
+        currently_strafing         = false;
+        wall_aligning              = false;
+        sonar_fwd_triggered        = false;
+        return;
+    }
+
+    avoid_obstacle_output_flag = 1;
+    avoid_obstacle_command     = MOVE;
+
+    // ── LOCK STRAFE DIRECTION (first trigger only) ───────────────
+    if (last_strafe_dir == 0.0f) {
+        if (fl_blocked && !fr_blocked) {
+            last_strafe_dir = rr_blocked ? -1.0f : 1.0f;
+        } else if (!fl_blocked && fr_blocked) {
+            last_strafe_dir = rl_blocked ? 1.0f : -1.0f;
+        } else {
+            // Both IRs blocked or sonar-only — pick the more open rear side
+            last_strafe_dir     = (rear_right_IR >= rear_left_IR) ? 1.0f : -1.0f;
+        }
+        last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
+        SerialCom->print(F("[AVOID] Direction locked: "));
+        SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+    }
+
+    // ── DIRECTION FLIP (only if not committed) ───────────────────
+    //if (!direction_committed) {
+        if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
+            last_strafe_dir = -1.0f;
+            last_dir        = LEFT;
+            SerialCom->println(F("[AVOID] RR closed — flipping to LEFT"));
+        } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
+            last_strafe_dir = 1.0f;
+            last_dir        = RIGHT;
+            SerialCom->println(F("[AVOID] RL closed — flipping to RIGHT"));
+        }
+    //}
+
+    // ── BACK UP if strafe-side front IR is dangerously close ─────
+    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 5.0f)
+                           || (last_strafe_dir < 0 && front_left_IR  < 5.0f);
+    if (strafe_into_danger) {
+        avoid_move_input = {0.0f, -0.6f, 0.0f};
+        SerialCom->println(F("[AVOID] Danger on strafe side — backing up"));
+        return;
+    }
+
+    avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
+    currently_strafing = true;
+    SerialCom->print(F("[AVOID] Strafing: "));
+    SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+}
+
+/*
+void avoid_obstacle() {
+    bool fl_blocked = (front_left_IR  < IR_FRONT_WARNING_CM);
+    bool fr_blocked = (front_right_IR < IR_FRONT_WARNING_CM);
+    bool rl_blocked = false;
+    bool rr_blocked = false;
+
+    bool sonar_front_blocked = (servo_pos == SERVO_CENTRE) && (sonar < SONAR_FRONT_OBSTACLE);
+
+    if (fl_blocked && !fr_blocked) {
+        rl_blocked = rear_left_IR  < ROBOT_CLEARANCE;
+        rr_blocked = rear_right_IR < SIDE_DANGER;
+    }
+    if (!fl_blocked && fr_blocked) {
+        rl_blocked = rear_left_IR  < SIDE_DANGER;
+        rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
+    }
     if ((fl_blocked && fr_blocked) || sonar_front_blocked) {
         rl_blocked = rear_left_IR  < ROBOT_CLEARANCE;
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
@@ -670,20 +681,31 @@ void avoid_obstacle() {
     avoid_obstacle_output_flag = 1;
     avoid_obstacle_command     = MOVE;
 
-    if (last_strafe_dir == 0.0f) {
-        if (!rr_blocked && rl_blocked) {
-            last_strafe_dir = 1.0f;
-        } else if (!rl_blocked && rr_blocked) {
-            last_strafe_dir = -1.0f;
-        } else if (!rr_blocked && !rl_blocked) {
-            last_strafe_dir = fl_blocked ? 1.0f : -1.0f;
+     if (last_strafe_dir == 0.0f) {
+        if (fl_blocked && !fr_blocked){
+            last_strafe_dir = rr_blocked ? -1.0f : 1:0f;
+        } else if (!fl_blocked && fr_blocked) {
+            last_strafe_dir = rl_blocked ? 1.0f : -1:0f;
         } else {
-            last_strafe_dir = 1.0f;
-        }
+          // if (!rr_blocked && rl_blocked) {
+          //   last_strafe_dir = 1.0f;
+          // } else if (!rl_blocked && rr_blocked) {
+          //   last_strafe_dir = -1.0f;
+          // } else {
+          // // Neither rear is blocked — for a head-on situation (both fronts or
+          // sonar triggered), pick the side with the greater rear clearance.
+          last_strafe_dir = (rear_right_IR >= rear_left_IR) ? 1.0f : -1.0f;
+          direction_committed = true;   // ← lock it, no flip allowed
+          } 
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
         SerialCom->print(F("[AVOID] Direction committed: "));
         SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+    } else if (last_strafe_dir == 1.0f) {
+      // going right 
 
+    }
+        
+        
     } else if (!direction_committed) {
         bool strafe_side_blocked = (last_strafe_dir > 0 && rr_blocked)
                                 || (last_strafe_dir < 0 && rl_blocked);
@@ -705,6 +727,7 @@ void avoid_obstacle() {
         currently_strafing = true;
     }
 }
+*/
 
 void realign_to_fire() {
             if ((sensorValues[3] > 70 && sensorValues[2] > 70)) { //if light detected by long range
@@ -714,20 +737,22 @@ void realign_to_fire() {
             int buffer;
             if (sensorValues[1] > 30 && sensorValues[0] > 30) {
                 if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                    buffer = 10;
+                    buffer = 25;
                 } else {
-                    buffer = 50;
+                    buffer = 60;
                 }
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                realign_move_input = {0.0f, 0.0f, -0.4f}; //CLOCKWISE
+                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.45f);
+                realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                realign_move_input = {0.0f, 0.0f, 0.4f}; //ANTI
+                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.45f);
+                realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = 1.0;
@@ -865,7 +890,7 @@ void arbitrate() {
         move_input  = cruise_move_input;
     }
     if (realign_to_fire_output_flag == 1) {
-        baseSpeed = 150;
+        baseSpeed = 175;
         motor_input = realign_to_fire_command;
         move_input  = realign_move_input;
     }
