@@ -280,10 +280,10 @@ void loop() {
 // ================================================================
 STATE initialising() {
     enable_motors();
-    SerialCom->println(F("INITIALISING"));
+    //SerialCom->println(F("INITIALISING"));
 
     // Warm up IMU
-    for (int i = 0; i < 50; i++) { updateIMU(); delay(10); }
+    for (int i = 0; i < 10; i++) { updateIMU(); delay(10); }
     yaw_offset = yaw_raw;
 
     // Reset scan state
@@ -332,8 +332,8 @@ STATE detect_fire() {
         if (spin_angle >= 355.0f) {
             scan_complete = true;
             stopRobot();
-            delay(200);
-            SerialCom->println(F("Scan complete"));
+            delay(100);
+            //SerialCom->println(F("Scan complete"));
         }
 
         return DETECT_FIRE;
@@ -342,7 +342,7 @@ STATE detect_fire() {
     // ── AFTER SCAN ────────────────────────────────────────────
     if (peak_long_value == 0) {
         // Nothing detected — reset and rescan immediately
-        SerialCom->println(F("No fire found, rescanning"));
+        //SerialCom->println(F("No fire found, rescanning"));
         scan_complete      = false;
         spin_angle         = 0.0f;
         peak_long_value    = 0;
@@ -698,12 +698,22 @@ void avoid_obstacle() {
     if (fl_blocked && fr_blocked) {
         rl_blocked = rear_left_IR  < ROBOT_CLEARANCE;
         rr_blocked = rear_right_IR < ROBOT_CLEARANCE;
-    }
+    } 
 
     // ── ALL CLEAR ────────────────────────────────────────────────
     if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
          static unsigned long clear_since_ms = 0;
         const unsigned long  CLEAR_HOLD_MS  = 100;
+
+         // ── ESCAPE: rear blocked, front clear ───────────────────────
+        if ((rear_left_IR < SIDE_DANGER) || (rear_right_IR < SIDE_DANGER)){
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = MOVE;
+            avoid_move_input           = {0.0f, 0.7f, 0.0f};
+            last_strafe_dir            = 0;
+            currently_strafing         = false;
+            return;
+        }
 
         if (currently_strafing && clear_since_ms == 0) {
             clear_since_ms = millis();
@@ -865,7 +875,7 @@ void realign_to_fire() {
             int buffer;
             if (sensorValues[1] > 30 && sensorValues[0] > 30) {
                 if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                  buffer = 25;
+                  buffer = 35;
                 } else if (sensorValues[1] < 500 || sensorValues[0] < 500) {
                   buffer = 70;
                 } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
@@ -877,13 +887,13 @@ void realign_to_fire() {
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                float scale = constrain(abs(dif) / 150.0f, 0.4f, 0.6f);
+                float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                float scale = constrain(abs(dif) / 150.0f, 0.4f, 0.6f);
+                float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
