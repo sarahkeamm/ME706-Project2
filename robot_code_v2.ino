@@ -145,7 +145,7 @@ bool  sonar_fwd_triggered = false;
 const float IR_FRONT_WARNING_CM  = 15.0f;
 const float IR_FRONT_DANGER_CM   = 15.0f;
 const float IR_REAR_DANGER_CM    = 10.0f;
-const float SONAR_FRONT_OBSTACLE = 15.0f;
+const float SONAR_FRONT_OBSTACLE = 12.0f;
 const float ROBOT_CLEARANCE      = 25.0f;
 const float SIDE_DANGER          = 10.0f;
 const float SONAR_SIDE_OBSTACLE_CM = 25.0f;
@@ -302,6 +302,7 @@ STATE initialising() {
 // ================================================================
 //  DETECT FIRE  — 360° spin, find up to 2 fire candidates
 // ================================================================
+
 STATE detect_fire() {
     serial_read_conditions();
 
@@ -347,6 +348,7 @@ STATE detect_fire() {
         peak_long_value    = 0;
         peak_angle         = 0.0f;
         scan_start_heading = GYRO_reading();
+        // -------------------------------------- could add in move to clearest part ? 
         return DETECT_FIRE;
     }
 
@@ -374,6 +376,132 @@ STATE detect_fire() {
 
     return RUNNING;
 }
+
+
+/*
+STATE detect_fire() {
+    serial_read_conditions();
+    static int scan_attempts = 0;
+
+    // ── SCANNING ──────────────────────────────────────────────
+    if (!scan_complete) {
+
+        // On the 3rd+ attempt, do a slow escape spin first —
+        // read front sensors while spinning and drive toward the clearest direction
+        if (scan_attempts >= 2 && spin_angle == 0.0f) {
+            SerialCom->println(F("Escape spin — finding clearest direction"));
+
+            float best_heading  = GYRO_reading();
+            float best_distance = 0.0f;
+
+            unsigned long escape_start = millis();
+            while (millis() - escape_start < 3000) {   // spin for up to 3 s
+                serial_read_conditions();
+
+                // Use the lesser of the two front IRs as the clearance metric
+                // (sonar also considered — take the max reliable reading)
+                float ir_clearance   = min(front_left_IR, front_right_IR);
+                float fwd_clearance  = (sonar < 200.0f) ? min(ir_clearance, sonar) : ir_clearance;
+
+                if (fwd_clearance > best_distance) {
+                    best_distance = fwd_clearance;
+                    best_heading  = GYRO_reading();
+                }
+
+                mecanumDrive(0.0f, 0.0f, 0.5f);   // slow spin
+                delay(20);
+            }
+            stopRobot();
+            delay(200);
+
+            SerialCom->print(F("Clearest heading: "));
+            SerialCom->println(best_heading);
+            SerialCom->print(F("Clearance: "));
+            SerialCom->println(best_distance);
+
+            // Face the clearest direction and drive forward briefly
+            spin_to_fire_bearing(best_heading);
+            for (int i = 0; i < 20; i++) {
+                mecanumDrive(0.0f, 0.6f, 0.0f);
+                delay(50);
+            }
+            stopRobot();
+            delay(300);
+
+            // Now set up a fresh scan from this new position
+            scan_start_heading = GYRO_reading();
+        }
+
+        // Normal scan spin
+        move_input  = {0.0f, 0.0f, 0.8f};
+        motor_input = MOVE;
+        robotMove();
+
+        float current_gyro = GYRO_reading();
+
+        float delta = current_gyro - scan_start_heading;
+        if (delta < 0.0f) delta += 360.0f;
+        spin_angle = delta;
+
+        int longAvg = (sensorValues[PT_LONG_RIGHT] + sensorValues[PT_LONG_LEFT]) / 2;
+        bool fire_visible = (sensorValues[PT_LONG_RIGHT] > LONG_FIRE_THRESHOLD &&
+                             sensorValues[PT_LONG_LEFT]  > LONG_FIRE_THRESHOLD);
+
+        if (fire_visible && longAvg > peak_long_value) {
+            peak_long_value = longAvg;
+            peak_angle      = current_gyro;
+        }
+
+        if (spin_angle >= 355.0f) {
+            scan_complete = true;
+            stopRobot();
+            delay(200);
+            SerialCom->println(F("Scan complete"));
+        }
+
+        return DETECT_FIRE;
+    }
+
+    // ── AFTER SCAN ────────────────────────────────────────────
+    if (peak_long_value == 0) {
+        scan_attempts++;
+        SerialCom->print(F("No fire found, attempt "));
+        SerialCom->println(scan_attempts);
+
+        scan_complete      = false;
+        spin_angle         = 0.0f;
+        peak_long_value    = 0;
+        peak_angle         = 0.0f;
+        scan_start_heading = GYRO_reading();
+        return DETECT_FIRE;
+    }
+
+    // Fire found — reset attempt counter for next time
+    scan_attempts = 0;
+
+    target_bearing = peak_angle;
+    SerialCom->print(F("Target bearing: "));
+    SerialCom->println(target_bearing);
+
+    spin_to_fire_bearing(target_bearing);
+
+    cruise_output_flag          = 0;
+    avoid_obstacle_output_flag  = 0;
+    realign_to_fire_output_flag = 0;
+    last_strafe_dir             = 0.0f;
+    avoid_strafe_dir            = 0.0f;
+    currently_strafing          = false;
+    last_dir                    = -1;
+    direction_committed         = false;
+
+    scan_complete      = false;
+    spin_angle         = 0.0f;
+    peak_long_value    = 0;
+    peak_angle         = 0.0f;
+
+    return RUNNING;
+}
+*/ // detect fire with the IR sensor scan for what to do with no fire found
 
 // Blocking spin to an absolute gyro heading recorded during the scan.
 // bearingDeg and GYRO_reading() are both 0–360 absolute headings,
@@ -415,7 +543,7 @@ STATE running() {
     // confirm the robot is within 10 cm, preventing false triggers.
     bool sr_left_ready  = sensorValues[PT_SHORT_LEFT]  > SHORT_FIRE_ALIGN;
     bool sr_right_ready = sensorValues[PT_SHORT_RIGHT] > SHORT_FIRE_ALIGN;
-    bool sonar_close    = (sonar <= 17.0f);
+    bool sonar_close    = (sonar <= 18.0f);
 
     // ── Run behaviours ──
     cruise();
@@ -462,7 +590,7 @@ STATE extinguish() {
     // Fire still present when both short-range sensors remain above align threshold
     bool sr_close = (sensorValues[PT_SHORT_LEFT]  > 200 ||
                      sensorValues[PT_SHORT_RIGHT] > 200);
-    
+
     while (sonar > 7) {
       move_input = {0.0f, 0.5f, 0.0f};
       motor_input = MOVE;
@@ -575,7 +703,7 @@ void avoid_obstacle() {
     // ── ALL CLEAR ────────────────────────────────────────────────
     if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
          static unsigned long clear_since_ms = 0;
-        const unsigned long  CLEAR_HOLD_MS  = 200;
+        const unsigned long  CLEAR_HOLD_MS  = 150;
 
         if (currently_strafing && clear_since_ms == 0) {
             clear_since_ms = millis();
@@ -737,21 +865,25 @@ void realign_to_fire() {
             int buffer;
             if (sensorValues[1] > 30 && sensorValues[0] > 30) {
                 if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                    buffer = 25;
+                  buffer = 25;
+                } else if (sensorValues[1] < 500 || sensorValues[0] < 500) {
+                  buffer = 70;
+                } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
+                  buffer = 60;
                 } else {
-                    buffer = 60;
+                  buffer = 55;
                 }
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.45f);
+                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.5f);
                 realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.45f);
+                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.5f);
                 realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
@@ -764,7 +896,7 @@ void realign_to_fire() {
             last_dir = -1;
             } else if (last_dir == RIGHT) {
             rotate = 1;
-            last_dir = -1;
+            last_dir = 1;
             }
             realign_move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
             realign_to_fire_command = MOVE;
