@@ -353,8 +353,8 @@ STATE detect_fire() {
     }
 
     target_bearing = peak_angle;
-    SerialCom->print(F("Target bearing: "));
-    SerialCom->println(target_bearing);
+    //SerialCom->print(F("Target bearing: "));
+    //SerialCom->println(target_bearing);
 
     spin_to_fire_bearing(target_bearing);
 
@@ -507,8 +507,8 @@ STATE detect_fire() {
 // bearingDeg and GYRO_reading() are both 0–360 absolute headings,
 // so shortest-path normalisation to ±180 gives the correct error direction.
 void spin_to_fire_bearing(float bearingDeg) {
-    SerialCom->print(F("Spinning to bearing: "));
-    SerialCom->println(bearingDeg);
+    //SerialCom->print(F("Spinning to bearing: "));
+    //SerialCom->println(bearingDeg);
     turnPID.reset();
 
     unsigned long startMs = millis();
@@ -522,10 +522,10 @@ void spin_to_fire_bearing(float bearingDeg) {
         // Normalise to ±180 within the 0–360 space
         if (error >  180.0f) error -= 360.0f;
         if (error < -180.0f) error += 360.0f;
-        float correction = constrain(error * 0.03f, -0.5f, 0.5f);
+        float correction = constrain(error * 0.03f, -0.7f, 0.7f);
         mecanumDrive(0.0f, 0.0f, correction);
         delay(10);
-    } while (fabs(error) > 3.0f);
+    } while (fabs(error) > 10.0f);
     stopRobot();
     delay(150);
 }
@@ -565,7 +565,7 @@ STATE running() {
 
     if (sr_left_ready && sr_right_ready && sonar_close && realign_to_fire_output_flag == 0) {
         stopRobot();
-        SerialCom->println(F("Fire close -- switching to EXTINGUISH"));
+        //SerialCom->println(F("Fire close -- switching to EXTINGUISH"));
         return EXTINGUISH;
     }
 
@@ -606,7 +606,7 @@ STATE extinguish() {
         digitalWrite(FAN_PIN, HIGH);
         fan_running  = true;
         fan_start_ms = millis();
-        SerialCom->println(F("Fan ON"));
+        //SerialCom->println(F("Fan ON"));
         return EXTINGUISH;
     }
 
@@ -626,8 +626,8 @@ STATE extinguish() {
     digitalWrite(FAN_PIN, LOW);
     fan_running = false;
     fires_extinguished++;
-    SerialCom->print(F("Fires extinguished: "));
-    SerialCom->println(fires_extinguished);
+    //SerialCom->print(F("Fires extinguished: "));
+    //SerialCom->println(fires_extinguished);
 
     if (fires_extinguished >= 2) {
         return STOPPED;
@@ -703,7 +703,7 @@ void avoid_obstacle() {
     // ── ALL CLEAR ────────────────────────────────────────────────
     if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
          static unsigned long clear_since_ms = 0;
-        const unsigned long  CLEAR_HOLD_MS  = 150;
+        const unsigned long  CLEAR_HOLD_MS  = 100;
 
         if (currently_strafing && clear_since_ms == 0) {
             clear_since_ms = millis();
@@ -741,8 +741,8 @@ void avoid_obstacle() {
             last_strafe_dir     = (rear_right_IR >= rear_left_IR) ? 1.0f : -1.0f;
         }
         last_dir = (last_strafe_dir > 0) ? RIGHT : LEFT;
-        SerialCom->print(F("[AVOID] Direction locked: "));
-        SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+        //SerialCom->print(F("[AVOID] Direction locked: "));
+        //SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
     }
 
     // ── DIRECTION FLIP (only if not committed) ───────────────────
@@ -750,27 +750,27 @@ void avoid_obstacle() {
         if (last_strafe_dir > 0 && rr_blocked && !rl_blocked) {
             last_strafe_dir = -1.0f;
             last_dir        = LEFT;
-            SerialCom->println(F("[AVOID] RR closed — flipping to LEFT"));
+            //SerialCom->println(F("[AVOID] RR closed — flipping to LEFT"));
         } else if (last_strafe_dir < 0 && rl_blocked && !rr_blocked) {
             last_strafe_dir = 1.0f;
             last_dir        = RIGHT;
-            SerialCom->println(F("[AVOID] RL closed — flipping to RIGHT"));
+            //SerialCom->println(F("[AVOID] RL closed — flipping to RIGHT"));
         }
     //}
 
     // ── BACK UP if strafe-side front IR is dangerously close ─────
-    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 5.0f)
-                           || (last_strafe_dir < 0 && front_left_IR  < 5.0f);
+    bool strafe_into_danger = (last_strafe_dir > 0 && front_right_IR < 10.0f)
+                           || (last_strafe_dir < 0 && front_left_IR  < 10.0f) || (sonar < 8.0f);
     if (strafe_into_danger) {
         avoid_move_input = {0.0f, -0.6f, 0.0f};
-        SerialCom->println(F("[AVOID] Danger on strafe side — backing up"));
+        //SerialCom->println(F("[AVOID] Danger on strafe side — backing up"));
         return;
     }
 
     avoid_move_input   = {last_strafe_dir, 0.0f, 0.0f};
     currently_strafing = true;
-    SerialCom->print(F("[AVOID] Strafing: "));
-    SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
+    //SerialCom->print(F("[AVOID] Strafing: "));
+    //SerialCom->println(last_strafe_dir > 0 ? F("RIGHT") : F("LEFT"));
 }
 
 /*
@@ -877,13 +877,13 @@ void realign_to_fire() {
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.5f);
+                float scale = constrain(abs(dif) / 150.0f, 0.4f, 0.6f);
                 realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                float scale = constrain(abs(dif) / 150.0f, 0.35f, 0.5f);
+                float scale = constrain(abs(dif) / 150.0f, 0.4f, 0.6f);
                 realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
