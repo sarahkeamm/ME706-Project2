@@ -875,10 +875,8 @@ void avoid_obstacle() {
 
 void realign_to_fire() {
             if ((sensorValues[3] > 70 && sensorValues[2] > 70)) { //if light detected by long range
-            float dif = sensorValues[0] - sensorValues[1];
+            int dif = sensorValues[0] - sensorValues[1];
             // SerialCom->println(dif);
-            float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
-            baseSpeed = 175;
 
             int buffer;
             if (sensorValues[1] > 30 && sensorValues[0] > 30) {
@@ -886,29 +884,22 @@ void realign_to_fire() {
                   buffer = 35;
                 } else if (sensorValues[1] < 500 || sensorValues[0] < 500) {
                   buffer = 70;
-                  //scale = constrain(abs(dif) / 150.0f, 0.4f, 0.45f);
                 } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
-                  buffer = 70;
-                  baseSpeed = 150;
-                  //scale = 0.3;
-                  scale = constrain(abs(dif) / 150.0f, 0.35f, 0.4f);
-                } else if (sensorValues[1] > 800 || sensorValues[0] > 800) {
                   buffer = 60;
-                  baseSpeed = 150;
-                  scale = constrain(abs(dif) / 150.0f, 0.35f, 0.4f);
-                  //scale = 0.3;
+                } else {
+                  buffer = 55;
                 }
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
             } else if (dif > buffer) {
-                //float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
+                float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
             } else if (dif < (-1 * buffer)) {
-                //float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
+                float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
@@ -929,6 +920,7 @@ void realign_to_fire() {
             }
         
 }
+
 
 
 // ================================================================
@@ -1047,6 +1039,7 @@ void arbitrate() {
         move_input  = cruise_move_input;
     }
     if (realign_to_fire_output_flag == 1) {
+        baseSpeed = 150;
         motor_input = realign_to_fire_command;
         move_input  = realign_move_input;
     }
