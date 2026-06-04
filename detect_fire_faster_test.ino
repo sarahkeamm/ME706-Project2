@@ -45,7 +45,7 @@ int Photopins[] = {A8, A9, A10, A11};
 // Short-range: fire visible and alignment should begin at >700.
 // The same 700 threshold is used to gate the EXTINGUISH transition from RUNNING.
 #define SHORT_FIRE_VISIBLE       30    // short-range: sensor is active (not ambient noise)
-#define SHORT_FIRE_ALIGN         900   // short-range: fire ~10 cm away — begin extinguish
+#define SHORT_FIRE_ALIGN         920   // short-range: fire ~10 cm away — begin extinguish
 
 // ================================================================
 //  STATE ENUMS
@@ -888,12 +888,12 @@ void realign_to_fire() {
                   buffer = 70;
                   //scale = constrain(abs(dif) / 150.0f, 0.4f, 0.45f);
                 } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
-                  buffer = 60;
+                  buffer = 70;
                   baseSpeed = 150;
                   //scale = 0.3;
                   scale = constrain(abs(dif) / 150.0f, 0.35f, 0.4f);
-                } else {
-                  buffer = 55;
+                } else if (sensorValues[1] > 800 || sensorValues[0] > 800) {
+                  buffer = 60;
                   baseSpeed = 150;
                   scale = constrain(abs(dif) / 150.0f, 0.35f, 0.4f);
                   //scale = 0.3;
