@@ -708,18 +708,8 @@ void avoid_obstacle() {
 
     // ── ALL CLEAR ────────────────────────────────────────────────
     if (!fl_blocked && !fr_blocked && !sonar_front_blocked) {
-         static unsigned long clear_since_ms = 0;
+        static unsigned long clear_since_ms = 0;
         const unsigned long  CLEAR_HOLD_MS  = 100;
-
-         // ── ESCAPE: rear blocked, front clear ───────────────────────
-        if ((rear_left_IR < SIDE_DANGER) || (rear_right_IR < SIDE_DANGER)){
-            avoid_obstacle_output_flag = 1;
-            avoid_obstacle_command     = MOVE;
-            avoid_move_input           = {0.0f, 0.7f, 0.0f};
-            last_strafe_dir            = 0;
-            currently_strafing         = false;
-            return;
-        }
 
         if (currently_strafing && clear_since_ms == 0) {
             clear_since_ms = millis();
@@ -729,6 +719,16 @@ void avoid_obstacle() {
             avoid_obstacle_output_flag = 1;
             avoid_obstacle_command     = MOVE;
             avoid_move_input           = {last_strafe_dir, 0.0f, 0.0f};
+            return;
+        }
+
+        // ── ESCAPE: rear blocked, front clear ───────────────────────
+        if ((rear_left_IR < SIDE_DANGER) || (rear_right_IR < SIDE_DANGER)){
+            avoid_obstacle_output_flag = 1;
+            avoid_obstacle_command     = MOVE;
+            avoid_move_input           = {0.0f, 0.7f, 0.0f};
+            last_strafe_dir            = 0;
+            currently_strafing         = false;
             return;
         }
 
@@ -874,51 +874,54 @@ void avoid_obstacle() {
 */
 
 void realign_to_fire() {
-            if ((sensorValues[3] > 70 && sensorValues[2] > 70)) { //if light detected by long range
-            int dif = sensorValues[0] - sensorValues[1];
-            // SerialCom->println(dif);
+    if ((sensorValues[3] > 70 && sensorValues[2] > 70)) { //if light detected by long range
+    int dif = sensorValues[0] - sensorValues[1];
+    // SerialCom->println(dif);
 
-            int buffer;
-            if (sensorValues[1] > 30 && sensorValues[0] > 30) {
-                if (sensorValues[1] < 300 || sensorValues[0] < 300) {
-                  buffer = 35;
-                } else if (sensorValues[1] < 500 || sensorValues[0] < 500) {
-                  buffer = 70;
-                } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
-                  buffer = 60;
-                } else {
-                  buffer = 55;
-                }
+        int buffer;
+        if (sensorValues[1] > 30 && sensorValues[0] > 30) {
+            if (sensorValues[1] < 300 || sensorValues[0] < 300) {
+            buffer = 40; //35
+            } else if (sensorValues[1] < 500 || sensorValues[0] < 500) {
+            buffer = 75; //70
+            } else if (sensorValues[1] < 700 || sensorValues[0] < 700) {
+            buffer = 60; 
+            } else {
+            buffer = 55;
+            }
 
             if (abs(dif) <= buffer) {
                 realign_to_fire_output_flag = 0;
-            } else if (dif > buffer) {
+            } 
+            else if (dif > buffer) {
                 float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, -scale};// clockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = -1.0;
-            } else if (dif < (-1 * buffer)) {
+            } 
+            else if (dif < (-1 * buffer)) {
                 float scale = constrain(abs(dif) / 150.0f, 0.5f, 0.7f);
                 realign_move_input = {0.0f, 0.0f, scale};// anticlockwise
                 realign_to_fire_command = MOVE;
                 realign_to_fire_output_flag = 1;
                 rotate = 1.0;
             } 
-            }
-            } else if ((sensorValues[2] <= 60 || sensorValues[3] <= 60)) { //else if no light detected
-            if (last_dir == LEFT) {
+        }
+    } 
+    else if ((sensorValues[2] <= 60 || sensorValues[3] <= 60)) { //else if no light detected ?? less than 70?
+        if (last_dir == LEFT) {
             rotate =  -1;
             last_dir = -1;
-            } else if (last_dir == RIGHT) {
+        } 
+        else if (last_dir == RIGHT) {
             rotate = 1;
             last_dir = 1;
-            }
-            realign_move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
-            realign_to_fire_command = MOVE;
-            realign_to_fire_output_flag = 1;
-            }
-        
+        }
+        realign_move_input = {0.0f, 0.0f, (1.0f*rotate)}; 
+        realign_to_fire_command = MOVE;
+        realign_to_fire_output_flag = 1;
+    }
 }
 
 
